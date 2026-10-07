@@ -156,9 +156,10 @@
   display: flex; align-items: center; gap: 14px; padding: 0 var(--m-page-px); cursor: pointer;
 }
 .dsh-music .playbar .progress {
-  position: absolute; top: -8px; left: 0; right: 0; height: 18px; display: flex; align-items: center;
-  cursor: pointer; touch-action: none;
+  position: absolute; top: -12px; left: 0; right: 0; height: 26px; display: flex; align-items: center;
+  cursor: pointer; touch-action: none; outline: none;
 }
+.dsh-music .playbar .progress:focus-visible .knob { opacity: 1; }
 .dsh-music .playbar .progress.off { cursor: default; opacity: .45; }
 .dsh-music .playbar .progress .track { height: 4px; width: 100%; border-radius: 2px; background: var(--m-panel-2); position: relative; transition: height .12s; }
 .dsh-music .playbar .progress:hover .track, .dsh-music .playbar .progress.dragging .track { height: 6px; }

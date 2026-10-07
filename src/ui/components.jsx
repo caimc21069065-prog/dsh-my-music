@@ -37,44 +37,85 @@ export function VerticalSlider({ value, onChange }) {
 }
 
 /**
- * 自绘横向进度条:按下即预览,松手才提交一次 seek(避免拖动过程反复请求音频流);
- * 无 pointer 事件的环境(如部分自动化/合成 click)退回 click 直接跳转。
+ * 自绘横向进度条:按下即预览,松手才提交一次 seek(避免拖动过程反复请求音频流)。
+ * 松手/取消都挂在 window 上:宿主页面常带 user-select 或拖拽区,原生手势会发
+ * pointercancel,只监听元素自身会让整次跳转静默丢失。
  */
 export function SeekBar({ position, duration, canSeek = true, onSeek }) {
   const ref = React.useRef(null);
-  const dragging = React.useRef(false);
-  const sawPointer = React.useRef(false);
   const [dragPct, setDragPct] = useState(null);
+  const drag = React.useRef({ active: false, ratio: 0, committed: false });
 
-  const ratioOf = (e) => {
-    const rect = ref.current.getBoundingClientRect();
-    if (!rect.width) return 0;
-    return Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+  const ratioOf = (clientX) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect || !rect.width) return 0;
+    return Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
   };
-  const commit = (ratio) => {
-    dragging.current = false;
-    setDragPct(null);
-    onSeek(ratio * duration);
+
+  const start = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault(); // 阻断宿主的选择/拖拽手势,避免半路 pointercancel
+    drag.current.detach?.();
+    const state = drag.current;
+    state.active = true;
+    state.committed = false;
+    state.ratio = ratioOf(e.clientX);
+    setDragPct(state.ratio * 100);
+
+    const finish = (clientX) => {
+      if (!state.active) return;
+      state.active = false;
+      detach();
+      if (clientX !== undefined) state.ratio = ratioOf(clientX);
+      state.committed = true;
+      setDragPct(null);
+      onSeek(state.ratio * duration);
+    };
+    const move = (ev) => { state.ratio = ratioOf(ev.clientX); setDragPct(state.ratio * 100); };
+    const up = (ev) => finish(ev.clientX);
+    const cancel = () => finish(); // 手势被系统接管时也按最后位置落点
+    const detach = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      state.detach = undefined;
+    };
+    state.detach = detach;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
   };
+
+  React.useEffect(() => () => drag.current.detach?.(), []);
+
   const pct = dragPct ?? (duration > 0 ? Math.min((position / duration) * 100, 100) : 0);
+
+  const onKeyDown = (e) => {
+    const step = { ArrowLeft: -5, ArrowRight: 5, PageDown: -15, PageUp: 15 }[e.key];
+    const target = e.key === 'Home' ? 0 : e.key === 'End' ? duration - 1 : step === undefined ? null : position + step;
+    if (target === null) return;
+    e.preventDefault();
+    onSeek(Math.min(Math.max(target, 0), Math.max(duration - 0.5, 0)));
+  };
 
   return (
     <div
       ref={ref}
       className={`progress${dragPct !== null ? ' dragging' : ''}${canSeek ? '' : ' off'}`}
-      title={canSeek ? '点击或拖动调整进度' : '进度暂不可调整(音频未就绪)'}
-      onPointerDown={(e) => {
-        sawPointer.current = true;
-        dragging.current = true;
-        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 合成事件无活动指针 */ }
-        setDragPct(ratioOf(e) * 100);
-      }}
-      onPointerMove={(e) => { if (dragging.current) setDragPct(ratioOf(e) * 100); }}
-      onPointerUp={(e) => { if (dragging.current) commit(ratioOf(e)); }}
-      onPointerCancel={() => { dragging.current = false; setDragPct(null); }}
+      title={canSeek ? '点击或拖动调整进度,方向键 ±5 秒' : '进度暂不可调整(音频未就绪)'}
+      role="slider"
+      tabIndex={0}
+      aria-label="播放进度"
+      aria-valuemin={0}
+      aria-valuemax={Math.round(duration)}
+      aria-valuenow={Math.round(position)}
+      aria-disabled={!canSeek}
+      onPointerDown={start}
+      onKeyDown={onKeyDown}
       onClick={(e) => {
-        if (sawPointer.current) { sawPointer.current = false; return; }
-        commit(ratioOf(e));
+        if (drag.current.committed) { drag.current.committed = false; return; }
+        e.preventDefault();
+        onSeek(ratioOf(e.clientX) * duration);
       }}
     >
       <div className="track">
