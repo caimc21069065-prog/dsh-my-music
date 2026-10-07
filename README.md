@@ -38,12 +38,18 @@ dsh plugin --profile desktop add dsh-plugin-music
 ```yaml
 - id: music
   config:
-    cookie: 'MUSIC_U=xxxxxxxx'   # 可选;未登录仅标准音质,VIP 歌无法完整播放
+    cookie: 'MUSIC_U=xxxxxxxx'   # 可选兜底;界面扫码登录/退出后不再起作用
     requestTimeoutMs: 15000
     defaultLevel: standard       # 音频代理默认音质
 ```
 
-Cookie 在 DSH → 设置 → 插件 → dsh-plugin-music 的配置表单里填更方便。
+## 登录
+
+音乐页 → 设置 → 账号 → **扫码登录**,用网易云音乐 App 扫一扫即可(等待扫码 → 已扫码待确认 → 登录成功自动刷新账号)。二维码由本插件按网易云授权链接实时绘制,授权成功后 `MUSIC_U` 等 Cookie 落盘在 `~/.dsh/music-cookie.json`,无需重启即对全部接口与音频代理生效。
+
+- 未登录只能播标准音质/试听,VIP 歌曲需要登录后才有完整链接。
+- 界面上的登录/退出**优先于**配置里的 `cookie`(退出后配置的 Cookie 也不会复活);想改回用配置 Cookie,删除该登录态文件即可。
+- 不想扫码也可以在 DSH → 设置 → 插件 → dsh-plugin-music 的配置表单里直接填 `cookie`。
 
 ## 开发
 
@@ -60,7 +66,7 @@ npm test        # 冒烟:工具 + /music/api/* + /music/stream 音频代理(真�
 ```
 DSH 桌面端
 ├─ 宿主插件 lib/index.js
-│   ├─ /music/api/*      数据接口(搜索/歌词/歌单/榜单/每日推荐)
+│   ├─ /music/api/*      数据接口(搜索/歌词/歌单/榜单/每日推荐/账号/扫码登录)
 │   ├─ /music/stream/:id 音频流代理(Range 透传,<audio> 直接指向此处)
 │   └─ 4 个 agent 工具
 └─ 客户端 lib/client.js(React,slots: main + sidebar.panellist)
