@@ -301,65 +301,100 @@ const VIP_NAMES = { 0: '', 10: '普通会员', 11: '豪华会员' };
 
 function AccountSection() {
   const { status, account } = useAccount();
-  const [qr, setQr] = useState(null); // { img, key, message, expired }
-  const timerRef = React.useRef(null);
+  const [qr, setQr] = useState(null); // { img, url, key, state: active|scanned|expired|error, message }
   const [busy, setBusy] = useState(false);
+  const timerRef = React.useRef(null);
 
   const stopPoll = () => { clearInterval(timerRef.current); timerRef.current = null; };
   useEffect(() => () => stopPoll(), []);
 
+  const poll = async (key) => {
+    let r;
+    try {
+      r = await api.qrCheck(key);
+    } catch {
+      return; // 单次轮询失败忽略,下个周期重试
+    }
+    if (r.code === 803) {
+      stopPoll();
+      if (r.ok) {
+        setQr(null);
+        await refreshAccount();
+      } else {
+        setQr((q) => ({ ...q, state: 'error', message: r.message ?? '登录未完成' }));
+      }
+      return;
+    }
+    if (r.code === 800) {
+      stopPoll();
+      setQr((q) => ({ ...q, state: 'expired', message: r.message ?? '二维码已过期' }));
+      return;
+    }
+    setQr((q) => (q ? { ...q, state: r.code === 802 ? 'scanned' : 'active', message: r.message ?? q.message } : q));
+  };
+
   const startLogin = async () => {
+    stopPoll();
     setBusy(true);
     try {
       const { key } = await api.qrKey();
-      const { qrimg } = await api.qrCreate(key);
-      setQr({ img: qrimg, key, message: '等待扫码' });
-      stopPoll();
-      timerRef.current = setInterval(async () => {
-        try {
-          const r = await api.qrCheck(key);
-          if (r.code === 803) {
-            stopPoll();
-            setQr(null);
-            await refreshAccount();
-          } else if (r.code === 800) {
-            stopPoll();
-            setQr((q) => (q ? { ...q, expired: true, message: r.message } : q));
-          } else if (r.message) {
-            setQr((q) => (q ? { ...q, message: r.message } : q));
-          }
-        } catch { /* 轮询失败忽略,下个周期重试 */ }
-      }, 2500);
+      const { qrimg, qrurl } = await api.qrCreate(key);
+      if (!qrimg) throw new Error('接口未返回二维码');
+      setQr({ img: qrimg, url: qrurl ?? '', key, state: 'active', message: '等待扫码' });
+      timerRef.current = setInterval(() => poll(key), 2500);
     } catch (e) {
-      setQr({ message: `获取二维码失败:${e.message}` });
+      setQr({ state: 'error', message: `获取二维码失败:${e.message}` });
     } finally {
       setBusy(false);
     }
   };
 
+  const cancelLogin = () => {
+    stopPoll();
+    setQr(null);
+  };
+
   const doLogout = async () => {
-    await api.logout();
-    await refreshAccount();
+    setBusy(true);
+    try {
+      await api.logout();
+      await refreshAccount();
+    } finally {
+      setBusy(false);
+    }
   };
 
   const loggedIn = account?.loggedIn;
+  const failed = qr && (qr.state === 'expired' || qr.state === 'error');
+  const desc =
+    status !== 'ready' ? '检测中…'
+      : loggedIn ? `已登录${account.cookieSource === 'config' ? '(取自插件配置)' : ''}:${account.nickname}${VIP_NAMES[account.vipType] ? ` · ${VIP_NAMES[account.vipType]}` : ''} · 同步每日推荐与 VIP 试听`
+      : account?.hasConfigCookie && account?.cookieSource === 'none'
+        ? '未登录 · 界面退出登录会同时停用插件配置里的 Cookie'
+        : '未登录 · 登录后同步每日推荐,VIP 歌曲可试听';
+
   return (
     <div className="set-row" style={{ alignItems: 'flex-start', minHeight: 76 }}>
       <div className="lab">
         <div className="t">网易云账号</div>
-        <div className="d">
-          {status !== 'ready' ? '检测中…'
-            : loggedIn ? `已登录:${account.nickname}${VIP_NAMES[account.vipType] ? ` · ${VIP_NAMES[account.vipType]}` : ''} · 同步每日推荐与 VIP 试听`
-            : '未登录 · 登录后同步每日推荐,VIP 歌曲可试听'}
-        </div>
+        <div className="d">{desc}</div>
         {qr ? (
           <div className="qr-panel">
-            {qr.img ? <img src={qr.img} alt="网易云登录二维码" /> : null}
-            <div className={qr.expired ? 'qr-msg expired' : 'qr-msg'}>
-              {qr.message}
-              {qr.expired ? <button className="ghost-btn" onClick={startLogin}>刷新二维码</button> : null}
-            </div>
-            <div className="qr-tip">打开网易云音乐 App 扫一扫</div>
+            {qr.img ? <img src={qr.img} alt="网易云登录二维码" className={failed ? 'dim' : ''} /> : null}
+            <div className={`qr-msg${failed ? ' expired' : qr.state === 'scanned' ? ' scanned' : ''}`}>{qr.message}</div>
+            {qr.img ? (
+              <div className="qr-tip">
+                {qr.state === 'scanned' ? '在手机上点确认即可自动完成登录' : '打开网易云音乐 App 扫一扫'}
+              </div>
+            ) : null}
+            {failed ? (
+              <button className="ghost-btn" onClick={startLogin} disabled={busy}>重新获取二维码</button>
+            ) : qr.state === 'active' ? (
+              <button className="ghost-btn" onClick={cancelLogin}>取消</button>
+            ) : null}
+            {qr.url && failed ? (
+              <a className="qr-link" href={qr.url} target="_blank" rel="noreferrer">在浏览器中打开授权页</a>
+            ) : null}
           </div>
         ) : null}
       </div>

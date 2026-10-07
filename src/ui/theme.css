@@ -257,9 +257,12 @@
   background: #fff; border-radius: 14px; padding: 12px;
 }
 .dsh-music .qr-panel img { width: 168px; height: 168px; display: block; }
+.dsh-music .qr-panel img.dim { opacity: 0.3; }
 .dsh-music .qr-msg { font-size: 12.5px; color: #161616; display: flex; align-items: center; gap: 8px; }
 .dsh-music .qr-msg.expired { color: #c0392b; }
+.dsh-music .qr-msg.scanned { color: #0f9d58; }
 .dsh-music .qr-tip { font-size: 11.5px; color: #8f93a3; }
+.dsh-music .qr-link { font-size: 11.5px; color: #4d7cff; text-decoration: none; }
 .dsh-music .account-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: var(--m-panel-2); }
 .dsh-music .hero {
   display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; margin-top: 16px;
