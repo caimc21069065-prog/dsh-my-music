@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>dsh-music 原型</title>
+<style>
+  :root {
+    --bg: #0d0e12;
+    --panel: #15161c;
+    --panel-2: #1b1d25;
+    --panel-3: #22242e;
+    --line: #262833;
+    --text: #e9ebf1;
+    --muted: #8f93a3;
+    --dim: #5b5f6e;
+    --accent: #24d183;
+    --accent-dim: rgba(36, 209, 131, .14);
+    --danger: #ff5f5f;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    background: #060709;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: var(--text);
+    display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 28px 0;
+  }
+  .switcher {
+    position: sticky; top: 12px; z-index: 99;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  }
+  .switcher a {
+    color: var(--muted); text-decoration: none; font-size: 13px; padding: 6px 12px;
+    border-radius: 8px; border: 1px solid transparent;
+  }
+  .switcher a:hover { color: var(--text); background: var(--panel-3); }
+  .switcher a.cur { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+  .screen {
+    width: 1280px; height: 800px; background: var(--bg);
+    border-radius: 14px; overflow: hidden; position: relative;
+    display: flex; border: 1px solid #1d1f28;
+    box-shadow: 0 20px 60px rgba(0,0,0,.55);
+  }
+  .screen.shot { margin: 0; }
+
+  /* ── 左侧 icon rail(模拟 DSH 外壳) ─────────────────── */
+  .rail {
+    width: 64px; background: #0a0b0e; border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 6px;
+    flex-shrink: 0;
+  }
+  .rail .logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #24d183, #0e8f5a);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; color: #04140c; font-size: 15px; margin-bottom: 14px; }
+  .rail .ic {
+    width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    color: var(--dim); margin-bottom: 2px;
+  }
+  .rail .ic svg { width: 20px; height: 20px; }
+  .rail .ic.on { color: var(--accent); background: var(--accent-dim); }
+  .rail .spacer { flex: 1; }
+  .rail .avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #8f6ad6, #4b3a91); }
+
+  /* ── 右侧主区 ─────────────────── */
+  .stage { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+  .topbar {
+    height: 58px; display: flex; align-items: center; gap: 18px; padding: 0 22px;
+    border-bottom: 1px solid var(--line); flex-shrink: 0; background: rgba(13,14,18,.86); backdrop-filter: blur(6px);
+    position: relative; z-index: 5;
+  }
+  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: .2px; display: flex; align-items: center; gap: 8px; }
+  .wordmark .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .tabs { display: flex; gap: 4px; background: var(--panel); padding: 4px; border-radius: 10px; }
+  .tab { font-size: 13px; color: var(--muted); padding: 6px 14px; border-radius: 8px; cursor: default; }
+  .tab.on { background: var(--accent); color: #04140c; font-weight: 600; }
+  .searchbox {
+    margin-left: auto; width: 300px; height: 34px; border-radius: 17px; background: var(--panel);
+    border: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--dim); font-size: 13px;
+  }
+  .searchbox svg { width: 15px; height: 15px; }
+  .chip {
+    height: 34px; padding: 0 14px; border-radius: 17px; background: var(--panel); border: 1px solid var(--line);
+    display: flex; align-items: center; font-size: 13px; color: var(--muted); gap: 6px;
+  }
+  .chip.green { color: var(--accent); border-color: rgba(36,209,131,.35); background: var(--accent-dim); }
+
+  .content { flex: 1; overflow: hidden; position: relative; }
+
+  /* ── 播放条 ─────────────────── */
+  .playerbar {
+    height: 84px; border-top: 1px solid var(--line); background: #101116;
+    display: flex; align-items: center; padding: 0 20px; gap: 16px; flex-shrink: 0; position: relative; z-index: 6;
+  }
+  .pb-cover { width: 52px; height: 52px; border-radius: 8px; background: linear-gradient(135deg,#3b2a63,#1a1430); position: relative; overflow: hidden; }
+  .pb-cover::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 70% 25%, rgba(255,190,120,.45), transparent 55%); }
+  .pb-meta { width: 168px; }
+  .pb-meta .t { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pb-meta .a { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pb-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .pb-ctrl { display: flex; align-items: center; gap: 26px; }
+  .pb-ctrl .btn { color: var(--muted); display: flex; }
+  .pb-ctrl .btn:hover { color: var(--text); }
+  .pb-ctrl .btn svg { width: 19px; height: 19px; }
+  .pb-ctrl .play {
+    width: 42px; height: 42px; border-radius: 50%; background: var(--accent); color: #04140c;
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(36,209,131,.35);
+  }
+  .pb-ctrl .play svg { width: 20px; height: 20px; }
+  .pb-track { width: 100%; max-width: 560px; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .bar { flex: 1; height: 4px; border-radius: 2px; background: var(--panel-3); position: relative; }
+  .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 42%; background: var(--accent); border-radius: 2px; }
+  .bar .knob { position: absolute; left: 42%; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+  .pb-right { display: flex; align-items: center; gap: 16px; color: var(--muted); }
+  .pb-right svg { width: 18px; height: 18px; }
+  .pb-right .vol { display: flex; align-items: center; gap: 8px; }
+  .pb-right .mini { width: 70px; height: 4px; border-radius: 2px; background: var(--panel-3); position: relative; }
+  .pb-right .mini i { position: absolute; left: 0; top: 0; bottom: 0; width: 62%; background: var(--muted); border-radius: 2px; }
+  .pb-right .on { color: var(--accent); }
+
+  /* ── 首页 ─────────────────── */
+  .home { padding: 20px 24px; height: 100%; overflow: hidden; }
+  .hero-row { display: flex; gap: 16px; }
+  .hero {
+    flex: 1.5; height: 218px; border-radius: 14px; overflow: hidden; position: relative;
+    background: linear-gradient(115deg, #0b0c10 0%, #14231c 46%, #0e1a22 100%);
+    padding: 26px 30px; display: flex; flex-direction: column;
+  }
+  .hero::before { content: ""; position: absolute; right: -60px; top: -80px; width: 300px; height: 300px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(36,209,131,.16), transparent 65%); }
+  .hero h2 { font-size: 30px; letter-spacing: 1px; }
+  .hero .sub { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; color: var(--muted);
+    background: rgba(255,255,255,.06); width: fit-content; padding: 4px 10px; border-radius: 12px; }
+  .hero ol { margin-top: 16px; list-style: none; font-size: 13.5px; color: #cfd2dc; display: flex; flex-direction: column; gap: 8px; }
+  .hero ol li { display: flex; gap: 12px; }
+  .hero ol .n { color: var(--dim); width: 14px; }
+  .hero ol .who { margin-left: auto; color: var(--dim); padding-right: 96px; }
+  .hero .fab {
+    position: absolute; right: 26px; bottom: 26px; width: 52px; height: 52px; border-radius: 50%;
+    background: var(--accent); color: #04140c; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 20px rgba(36,209,131,.4);
+  }
+  .hero .fab svg { width: 22px; height: 22px; }
+  .side-card {
+    flex: 1; height: 218px; border-radius: 14px; background: linear-gradient(135deg, #1d2a24, #141a20);
+    border: 1px solid var(--line); padding: 22px 24px; position: relative; overflow: hidden;
+  }
+  .side-card .tag { font-size: 12px; color: var(--accent); display: flex; gap: 6px; align-items: center; }
+  .side-card h3 { font-size: 24px; margin-top: 14px; }
+  .side-card p { color: var(--muted); font-size: 13px; margin-top: 10px; line-height: 1.6; }
+  .side-card .chips { position: absolute; bottom: 22px; left: 24px; display: flex; gap: 8px; }
+  .side-card .chips span { font-size: 12px; color: var(--muted); background: rgba(255,255,255,.06); border: 1px solid var(--line); padding: 4px 10px; border-radius: 12px; }
+  .side-card .go { position: absolute; right: 20px; bottom: 20px; width: 40px; height: 40px; border-radius: 50%;
+    background: var(--panel-3); display: flex; align-items: center; justify-content: center; color: var(--text); }
+  .sec-head { display: flex; align-items: baseline; margin: 24px 0 14px; }
+  .sec-head h3 { font-size: 19px; display: flex; align-items: center; gap: 8px; }
+  .sec-head h3::before { content: ""; width: 6px; height: 18px; border-radius: 3px; background: var(--accent); }
+  .sec-head .more { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+  .card { border-radius: 12px; overflow: hidden; background: var(--panel); border: 1px solid var(--line); }
+  .cover { height: 128px; position: relative; display: flex; align-items: flex-end; padding: 8px; }
+  .cover .plays { position: absolute; top: 8px; right: 8px; font-size: 11px; color: #e9ebf1;
+    background: rgba(0,0,0,.45); padding: 3px 8px; border-radius: 10px; display: flex; align-items: center; gap: 4px; }
+  .cover .plays svg { width: 10px; height: 10px; }
+  .cover .hoverplay { position: absolute; right: 10px; bottom: 10px; width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(36,209,131,.95); color: #04140c; display: flex; align-items: center; justify-content: center; opacity: .95;
+    box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+  .cover .hoverplay svg { width: 16px; height: 16px; }
+  .card .cap { padding: 10px 12px 12px; }
+  .card .cap .t { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .cap .s { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .g1 { background: linear-gradient(135deg,#5b2a86,#2a1650); } .g2 { background: linear-gradient(135deg,#8a4b2a,#3d1f10); }
+  .g3 { background: linear-gradient(135deg,#1f6f5f,#0d2f28); } .g4 { background: linear-gradient(135deg,#2a4d7f,#122239); }
+  .g5 { background: linear-gradient(135deg,#8f2a4b,#3d1020); } .g6 { background: linear-gradient(135deg,#6d6a2a,#2e2d10); }
+  .g7 { background: linear-gradient(135deg,#3a2a86,#161050); } .g8 { background: linear-gradient(135deg,#2a7f6d,#0f3d33); }
+  .g9 { background: linear-gradient(135deg,#803a8a,#33113d); } .g10 { background: linear-gradient(135deg,#2a6d7f,#103340); }
+  .cover .glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 34px; font-weight: 800; color: rgba(255,255,255,.22); letter-spacing: 2px; }
+
+  /* ── 歌单详情 ─────────────────── */
+  .pl { padding: 22px 26px; height: 100%; }
+  .pl-head { display: flex; gap: 20px; }
+  .pl-cover { width: 148px; height: 148px; border-radius: 12px; position: relative; overflow: hidden; }
+  .pl-cover .glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: 800; color: rgba(255,255,255,.25); }
+  .pl-info { flex: 1; display: flex; flex-direction: column; }
+  .pl-info h2 { font-size: 22px; }
+  .pl-info .meta { color: var(--muted); font-size: 13px; margin-top: 8px; display: flex; gap: 14px; }
+  .pl-info .desc { color: var(--muted); font-size: 12.5px; margin-top: 10px; line-height: 1.7; max-width: 720px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pl-actions { margin-top: auto; display: flex; gap: 10px; }
+  .btn-p { height: 36px; padding: 0 18px; border-radius: 18px; background: var(--accent); color: #04140c; font-weight: 600;
+    font-size: 13px; display: inline-flex; align-items: center; gap: 7px; }
+  .btn-p svg { width: 15px; height: 15px; }
+  .btn-o { height: 36px; padding: 0 16px; border-radius: 18px; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--muted); font-size: 13px; display: inline-flex; align-items: center; gap: 7px; }
+  .btn-o svg { width: 15px; height: 15px; }
+  .tracks { margin-top: 20px; }
+  .trk { display: grid; grid-template-columns: 34px 1fr 220px 200px 54px 90px; align-items: center; gap: 10px;
+    height: 44px; padding: 0 12px; border-radius: 9px; font-size: 13.5px; }
+  .trk:nth-child(odd) { background: rgba(255,255,255,.025); }
+  .trk .idx { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .trk .tt { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
+  .trk .tt .eq { color: var(--accent); display: flex; }
+  .trk .tt .vip { font-size: 10px; color: #e8b34b; border: 1px solid rgba(232,179,75,.45); border-radius: 4px; padding: 0 4px; }
+  .trk .ar, .trk .al { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trk .dur { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  .trk .ops { display: flex; gap: 12px; justify-content: flex-end; color: var(--dim); }
+  .trk .ops svg { width: 15px; height: 15px; }
+  .trk.playing { background: var(--accent-dim); }
+  .trk.playing .tt, .trk.playing .idx { color: var(--accent); }
+
+  /* ── 搜索页 ─────────────────── */
+  .search-hero { padding: 30px 28px 0; }
+  .search-big { display: flex; align-items: center; gap: 12px; background: var(--panel-2); border: 2px solid var(--accent);
+    border-radius: 12px; height: 52px; padding: 0 18px; box-shadow: 0 0 0 5px rgba(36,209,131,.07); }
+  .search-big svg { width: 20px; height: 20px; color: var(--accent); }
+  .search-big .kw { font-size: 17px; }
+  .caret { width: 2px; height: 22px; background: var(--accent); }
+  .search-big .btn { margin-left: auto; height: 34px; padding: 0 20px; border-radius: 8px; background: var(--accent); color: #04140c;
+    font-size: 13px; font-weight: 600; display: flex; align-items: center; }
+  .stype { display: flex; gap: 6px; margin: 16px 0 6px; }
+  .stype span { font-size: 13px; color: var(--muted); padding: 6px 14px; border-radius: 14px; background: var(--panel); }
+  .stype span.on { color: #04140c; background: var(--accent); font-weight: 600; }
+  .res-hint { color: var(--dim); font-size: 12.5px; padding: 2px 4px 10px; }
+
+  /* ── 正在播放 ─────────────────── */
+  .np-bg { position: absolute; inset: 0; background: linear-gradient(180deg, #1c1533 0%, #0d0e12 78%); }
+  .np-bg::before { content: ""; position: absolute; left: 12%; top: -30%; width: 520px; height: 520px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(140,90,220,.28), transparent 62%); }
+  .np { position: relative; height: 100%; display: flex; align-items: center; justify-content: center; gap: 72px; padding: 0 60px 60px; }
+  .np-cover { width: 300px; height: 300px; border-radius: 18px; background: linear-gradient(135deg,#3b2a63,#1a1430); position: relative;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.06) inset; }
+  .np-cover::after { content: ""; position: absolute; inset: 0; border-radius: 18px;
+    background: radial-gradient(circle at 72% 22%, rgba(255,190,120,.5), transparent 55%); }
+  .np-cover .disc { position: absolute; right: -34px; top: 50%; transform: translateY(-50%); width: 120px; height: 120px; border-radius: 50%;
+    background: repeating-radial-gradient(circle, #191a20 0 3px, #101116 3px 6px); border: 6px solid #0a0b0e; }
+  .np-cover .disc::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 34px; height: 34px; border-radius: 50%; background: var(--accent); }
+  .np-lyrics { width: 380px; height: 480px; overflow: hidden; position: relative; padding-top: 42px; }
+  .ly { text-align: left; display: flex; flex-direction: column; gap: 18px; }
+  .ly span { font-size: 15px; color: var(--dim); transition: .2s; line-height: 1.5; }
+  .ly span.on { color: var(--text); font-size: 18px; font-weight: 600; }
+  .ly span.near { color: var(--muted); }
+  .np-lyrics::before, .np-lyrics::after { content: ""; position: absolute; left: 0; right: 0; height: 90px; z-index: 2; pointer-events: none; }
+  .np-lyrics::before { top: 0; background: linear-gradient(180deg, rgba(23,17,42,.95) 0%, rgba(23,17,42,.65) 55%, transparent 100%); }
+  .np-lyrics::after { bottom: 0; background: linear-gradient(0deg, rgba(13,14,18,.95), transparent); }
+
+  /* ── 队列浮层 ─────────────────── */
+  .dim { position: absolute; inset: 0; background: rgba(4,5,8,.55); z-index: 8; }
+  .queue {
+    position: absolute; right: 14px; bottom: 96px; width: 372px; max-height: 560px; z-index: 9;
+    background: #17181f; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.6);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .q-head { display: flex; align-items: center; padding: 14px 16px; font-size: 14px; font-weight: 600; gap: 8px; border-bottom: 1px solid var(--line); }
+  .q-head .n { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+  .q-head .ops { margin-left: auto; display: flex; gap: 12px; color: var(--muted); }
+  .q-head .ops svg { width: 16px; height: 16px; }
+  .q-list { overflow: hidden; padding: 6px 8px; }
+  .q-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; }
+  .q-item:hover { background: rgba(255,255,255,.04); }
+  .q-cover { width: 38px; height: 38px; border-radius: 7px; position: relative; overflow: hidden; flex-shrink: 0; }
+  .q-meta { min-width: 0; flex: 1; }
+  .q-meta .t { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-meta .a { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-item .ops { display: flex; gap: 10px; color: var(--dim); }
+  .q-item .ops svg { width: 15px; height: 15px; }
+  .q-item .ops .playdot { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #04140c;
+    display: flex; align-items: center; justify-content: center; }
+  .q-item .ops .playdot svg { width: 12px; height: 12px; }
+  .q-item.playing .t { color: var(--accent); }
+
+  /* ── 设置 ─────────────────── */
+  .set { padding: 26px 32px; height: 100%; overflow: hidden; }
+  .set h1 { font-size: 22px; margin-bottom: 18px; }
+  .set-sec { font-size: 13px; color: var(--accent); font-weight: 600; letter-spacing: .5px; margin: 20px 0 8px; display: flex; align-items: center; gap: 8px; }
+  .set-sec::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .row { display: flex; align-items: center; min-height: 58px; padding: 10px 4px; border-bottom: 1px solid rgba(255,255,255,.04); }
+  .row .lab { width: 300px; }
+  .row .lab .t { font-size: 14px; font-weight: 500; }
+  .row .lab .d { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .row .ctl { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .seg { display: flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
+  .seg span { font-size: 12.5px; color: var(--muted); padding: 5px 14px; border-radius: 7px; }
+  .seg span.on { background: var(--accent); color: #04140c; font-weight: 600; }
+  .switch { width: 40px; height: 22px; border-radius: 11px; background: var(--panel-3); position: relative; }
+  .switch.on { background: var(--accent); }
+  .switch i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+  .switch.on i { left: 21px; }
+  .sel { min-width: 150px; height: 32px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--muted); font-size: 12.5px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; gap: 8px; }
+  .note { font-size: 12px; color: var(--dim); line-height: 1.8; margin-top: 14px; padding: 12px 14px; background: rgba(255,255,255,.03);
+    border: 1px solid var(--line); border-radius: 10px; }
+  .warn { color: #e8b34b; }
+
+  svg { display: block; }
+</style>
+</head>
+<body>
+<div class="switcher">
+  <a href="#s-home" class="cur">① 发现(首页)</a>
+  <a href="#s-playlist">② 歌单详情</a>
+  <a href="#s-search">③ 搜索</a>
+  <a href="#s-np">④ 正在播放 · 歌词</a>
+  <a href="#s-queue">⑤ 播放队列</a>
+  <a href="#s-set">⑥ 设置</a>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3.1 3 10v10a1 1 0 0 0 1 1h5.5v-6h5v6H20a1 1 0 0 0 1-1V10z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8.4L4 21z"/></symbol>
+    <symbol id="i-comp" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5h18v11H3zm4 13h10v2H7z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m1 5h-2v6l5 3 1-1.7-4-2.3z"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v10.6a4 4 0 1 0 2 3.4V7h4V3z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path fill="currentColor" d="M4 20V10h3v10zm6.5 0V4h3v16zM17 20v-7h3v7z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5h6l2 2h10v12H3z"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><path fill="currentColor" d="m10.3 2.8.4 2.2a7 7 0 0 0-1.7 1L6.9 5.3 4.5 7.7l1.1 2a7 7 0 0 0-.6 2l-2 .9v3.4l2.2.4a7 7 0 0 0 1 1.7l-.9 2.1 2.4 2.4 2-1.1a7 7 0 0 0 2 .6l.9 2h3.4l.4-2.2a7 7 0 0 0 1.7-1l2.1.9 2.4-2.4-1.1-2a7 7 0 0 0 .6-2l2-.9v-3.4l-2.2-.4a7 7 0 0 0-1-1.7l.9-2.1-2.4-2.4-2 1.1a7 7 0 0 0-2-.6l-.9-2zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10m0 2c-5 0-8 2.5-8 6v2h16v-2c0-3.5-3-6-8-6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.1v13.8c0 .8.9 1.3 1.6.9l10.9-6.9c.6-.4.6-1.4 0-1.8L9.6 4.2c-.7-.4-1.6.1-1.6.9"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M6 4h4v16H6zm8 0h4v16h-4z"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path fill="currentColor" d="M6 5h2.5v14H6zm13.5.7v12.6c0 .8-.9 1.3-1.6.8l-9-6.3a1 1 0 0 1 0-1.6l9-6.3c.7-.5 1.6 0 1.6.8"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 5H18v14h-2.5zM4.5 5.7v12.6c0 .8.9 1.3 1.6.8l9-6.3a1 1 0 0 0 0-1.6l-9-6.3c-.7-.5-1.6 0-1.6.8"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21s-8-4.9-10-9.5C.6 8 2.6 4.5 6.2 4.5c2.2 0 3.9 1.2 5.8 3.4 1.9-2.2 3.6-3.4 5.8-3.4 3.6 0 5.6 3.5 4.2 7C20 16.1 12 21 12 21"/></symbol>
+    <symbol id="i-vol" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9v6h4l5 5V4L8 9zm12.5 3a3.5 3.5 0 0 0-2-3.2v6.4a3.5 3.5 0 0 0 2-3.2m-2-8.7v2.1a7 7 0 0 1 0 13.2v2.1a9 9 0 0 0 0-17.4"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path fill="currentColor" d="M17 4h5v5h-2V7.4l-4.6 4.6 4.6 4.6V15h2v5h-5v-2h1.6L14 13.4 9.4 18H4v-2h4.6l5-5-5-5H4V4h5.4L14 8.6 18.6 4H17z"/></symbol>
+    <symbol id="i-queue" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm16-9 4 3-4 3z"/></symbol>
+    <symbol id="i-lyric" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h16v13H8l-4 4z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><path fill="currentColor" d="M10 2a8 8 0 1 0 4.9 14.3l5 5 1.4-1.4-5-5A8 8 0 0 0 10 2m0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path fill="currentColor" d="M11 4h2v11.2l4.6-4.6L19 12l-7 7-7-7 1.4-1.4L11 15.2z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4zM5 8h14l-1 13H6z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></symbol>
+    <symbol id="i-disc" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 13a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></symbol>
+  </defs>
+</svg>
+
+<!-- ═══════════ ① 发现(首页) ═══════════ -->
+<div class="screen" id="s-home">
+  <div class="rail">
+    <div class="logo">DS</div>
+    <div class="ic"><svg><use href="#i-chat"/></svg></div>
+    <div class="ic"><svg><use href="#i-comp"/></svg></div>
+    <div class="ic"><svg><use href="#i-clock"/></svg></div>
+    <div class="ic on"><svg><use href="#i-music"/></svg></div>
+    <div class="ic"><svg><use href="#i-chart"/></svg></div>
+    <div class="ic"><svg><use href="#i-folder"/></svg></div>
+    <div class="spacer"></div>
+    <div class="ic"><svg><use href="#i-gear"/></svg></div>
+    <div class="avatar"></div>
+  </div>
+  <div class="stage">
+    <div class="topbar">
+      <div class="wordmark"><span class="dot"></span>DSH Music</div>
+      <div class="tabs"><span class="tab on">发现</span><span class="tab">歌单</span><span class="tab">排行榜</span><span class="tab">我的收藏</span></div>
+      <div class="searchbox"><svg><use href="#i-search"/></svg>搜索歌曲、歌手、专辑、歌单</div>
+      <div class="chip green"><svg width="12" height="12"><use href="#i-user"/></svg>已登录</div>
+    </div>
+    <div class="content">
+      <div class="home">
+        <div class="hero-row">
+          <div class="hero">
+            <h2>每日推荐</h2>
+            <span class="sub">10月07日 · 周三 · 共 32 首</span>
+            <ol>
+              <li><span class="n">1</span>水星记<span class="who">郭顶</span></li>
+              <li><span class="n">2</span>红马<span class="who">一颗狼星</span></li>
+              <li><span class="n">3</span>海誓山盟<span class="who">王震</span></li>
+            </ol>
+            <div class="fab"><svg><use href="#i-play"/></svg></div>
+          </div>
+          <div class="side-card">
+            <span class="tag"><svg width="13" height="13"><use href="#i-list"/></svg>精选歌单</span>
+            <h3>沉浸专注 · 轻电流</h3>
+            <p>为写代码的你准备的低干扰歌单, rhythm 轻缓、人声少,持续更新。</p>
+            <div class="chips"><span>64 首</span><span>更新于今天</span></div>
+            <div class="go"><svg width="16" height="16"><use href="#i-next"/></svg></div>
+          </div>
+        </div>
+        <div class="sec-head"><h3>本周最热歌单</h3><span class="more">更多 ›</span></div>
+        <div class="grid">
+          <div class="card"><div class="cover g1"><span class="glyph">赛前</span><span class="plays"><svg><use href="#i-play"/></svg>246.5万</span><span class="hoverplay"><svg><use href="#i-play"/></svg></span></div><div class="cap"><div class="t">【游戏赛前预热】</div><div class="s">热血开黑必备 BGM</div></div></div>
+          <div class="card"><div class="cover g2"><span class="glyph">喜欢</span><span class="plays"><svg><use href="#i-play"/></svg>12.4万</span></div><div class="cap"><div class="t">"喜欢却不敢接近"</div><div class="s">偷偷藏不住的心事</div></div></div>
+          <div class="card"><div class="cover g3"><span class="glyph">清醒</span><span class="plays"><svg><use href="#i-play"/></svg>8.6万</span></div><div class="cap"><div class="t">别骗自己了</div><div class="s">他不爱你</div></div></div>
+          <div class="card"><div class="cover g4"><span class="glyph">前奏</span><span class="plays"><svg><use href="#i-play"/></svg>42.7万</span></div><div class="cap"><div class="t">前奏一响就回来了</div><div class="s">热门歌单推荐</div></div></div>
+          <div class="card"><div class="cover g5"><span class="glyph">KTV</span><span class="plays"><svg><use href="#i-play"/></svg>1070万</span></div><div class="cap"><div class="t">『华语』KTV最佳对唱</div><div class="s">去KTV拿个对唱第一名</div></div></div>
+          <div class="card"><div class="cover g6"><span class="glyph">落日</span><span class="plays"><svg><use href="#i-play"/></svg>42.0万</span></div><div class="cap"><div class="t">落日飞车与黄昏</div><div class="s">城市漫游指南</div></div></div>
+          <div class="card"><div class="cover g7"><span class="glyph">夜车</span><span class="plays"><svg><use href="#i-play"/></svg>493.0万</span></div><div class="cap"><div class="t">深夜末班车电台</div><div class="s">伴你回家的歌</div></div></div>
+          <div class="card"><div class="cover g8"><span class="glyph">专注</span><span class="plays"><svg><use href="#i-play"/></svg>41.6万</span></div><div class="cap"><div class="t">深度工作 · 白噪音</div><div class="s">效率翻倍</div></div></div>
+          <div class="card"><div class="cover g9"><span class="glyph">钢琴</span><span class="plays"><svg><use href="#i-play"/></svg>593.3万</span></div><div class="cap"><div class="t">Nocturne 夜曲集</div><div class="s">肖邦与月色</div></div></div>
+          <div class="card"><div class="cover g10"><span class="glyph">粤语</span><span class="plays"><svg><use href="#i-play"/></svg>44.9万</span></div><div class="cap"><div class="t">粤语黄金年代</div><div class="s">Beyond · 张国荣 · 陈奕迅</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="playerbar">
+      <div class="pb-cover"></div>
+      <div class="pb-meta"><div class="t">海屿你</div><div class="a">马也_Crabbit</div></div>
+      <div class="pb-center">
+        <div class="pb-ctrl">
+          <span class="btn"><svg><use href="#i-prev"/></svg></span>
+          <span class="play"><svg><use href="#i-pause"/></svg></span>
+          <span class="btn"><svg><use href="#i-next"/></svg></span>
+        </div>
+        <div class="pb-track"><span>1:41</span><div class="bar"><div class="fill"></div><div class="knob"></div></div><span>4:02</span></div>
+      </div>
+      <div class="pb-right">
+        <span class="vol"><svg><use href="#i-vol"/></svg><span class="mini"><i></i></span></span>
+        <span class="on"><svg><use href="#i-repeat"/></svg></span>
+        <svg><use href="#i-heart"/></svg>
+        <svg><use href="#i-lyric"/></svg>
+        <svg><use href="#i-queue"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ② 歌单详情 ═══════════ -->
+<div class="screen" id="s-playlist" hidden>
+  <div class="rail">
+    <div class="logo">DS</div>
+    <div class="ic"><svg><use href="#i-chat"/></svg></div>
+    <div class="ic"><svg><use href="#i-comp"/></svg></div>
+    <div class="ic"><svg><use href="#i-clock"/></svg></div>
+    <div class="ic on"><svg><use href="#i-music"/></svg></div>
+    <div class="ic"><svg><use href="#i-chart"/></svg></div>
+    <div class="ic"><svg><use href="#i-folder"/></svg></div>
+    <div class="spacer"></div>
+    <div class="ic"><svg><use href="#i-gear"/></svg></div>
+    <div class="avatar"></div>
+  </div>
+  <div class="stage">
+    <div class="topbar">
+      <div class="wordmark"><span class="dot"></span>DSH Music</div>
+      <div class="tabs"><span class="tab">发现</span><span class="tab on">歌单</span><span class="tab">排行榜</span><span class="tab">我的收藏</span></div>
+      <div class="searchbox"><svg><use href="#i-search"/></svg>搜索歌曲、歌手、专辑、歌单</div>
+      <div class="chip green"><svg width="12" height="12"><use href="#i-user"/></svg>已登录</div>
+    </div>
+    <div class="content">
+      <div class="pl">
+        <div class="pl-head">
+          <div class="pl-cover g6"><span class="glyph">岁月</span></div>
+          <div class="pl-info">
+            <h2>华语经典 · 岁月留声</h2>
+            <div class="meta"><span>共 87 首</span><span>播放 1208 万次</span><span>by DSH Music 精选</span></div>
+            <div class="desc">从 Beyond 到陈奕迅,从磁带走到流媒体。这里收着一代人的青春:海阔天空、红日、江南、童话……戴上耳机,回到那个无忧的夏天。</div>
+            <div class="pl-actions">
+              <span class="btn-p"><svg><use href="#i-play"/></svg>播放全部</span>
+              <span class="btn-o"><svg><use href="#i-down"/></svg>下载全部</span>
+              <span class="btn-o"><svg><use href="#i-heart"/></svg>收藏</span>
+              <span class="btn-o"><svg><use href="#i-more"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <div class="tracks">
+          <div class="trk"><span class="idx">1</span><span class="tt">海阔天空<span class="vip">VIP</span></span><span class="ar">Beyond</span><span class="al">海阔天空</span><span class="dur">5:24</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">2</span><span class="tt">红日<span class="vip">VIP</span></span><span class="ar">李克勤</span><span class="al">红日</span><span class="dur">4:52</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">3</span><span class="tt">江南</span><span class="ar">林俊杰</span><span class="al">第二天堂</span><span class="dur">4:28</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">4</span><span class="tt">童话</span><span class="ar">光良</span><span class="al">童话</span><span class="dur">4:25</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">5</span><span class="tt">突然好想你</span><span class="ar">五月天</span><span class="al">后青春期的诗</span><span class="dur">4:03</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk playing"><span class="idx"><span class="eq"><svg width="14" height="14"><use href="#i-music"/></svg></span></span><span class="tt">海屿你</span><span class="ar">马也_Crabbit</span><span class="al">海屿你</span><span class="dur">4:02</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">7</span><span class="tt">情绪回收站</span><span class="ar">失落花园_</span><span class="al">情绪回收站</span><span class="dur">3:41</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">8</span><span class="tt">山楂树之恋<span class="vip">VIP</span></span><span class="ar">程佳佳</span><span class="al">山楂树之恋</span><span class="dur">4:12</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">9</span><span class="tt">灰姑娘</span><span class="ar">梁咏琪</span><span class="al">短发</span><span class="dur">3:58</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+          <div class="trk"><span class="idx">10</span><span class="tt">挪威的森林</span><span class="ar">伍佰</span><span class="al">爱情的尽头</span><span class="dur">6:07</span><span class="ops"><svg><use href="#i-heart"/></svg><svg><use href="#i-down"/></svg></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="playerbar">
+      <div class="pb-cover"></div>
+      <div class="pb-meta"><div class="t">海屿你</div><div class="a">马也_Crabbit</div></div>
+      <div class="pb-center">
+        <div class="pb-ctrl">
+          <span class="btn"><svg><use href="#i-prev"/></svg></span>
+          <span class="play"><svg><use href="#i-pause"/></svg></span>
+          <span class="btn"><svg><use href="#i-next"/></svg></span>
+        </div>
+        <div class="pb-track"><span>1:41</span><div class="bar"><div class="fill"></div><div class="knob"></div></div><span>4:02</span></div>
+      </div>
+      <div class="pb-right">
+        <span class="vol"><svg><use href="#i-vol"/></svg><span class="mini"><i></i></span></span>
+        <span class="on"><svg><use href="#i-repeat"/></svg></span>
+        <svg><use href="#i-heart"/></svg>
+        <svg><use href="#i-lyric"/></svg>
+        <svg><use href="#i-queue"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ③ 搜索 ═══════════ -->
+<div class="screen" id="s-search" hidden>
+  <div class="rail">
+    <div class="logo">DS</div>
+    <div class="ic"><svg><use href="#i-chat"/></svg></div>
+    <div class="ic"><svg><use href="#i-comp"/></svg></div>
+    <div class="ic"><svg><use href="#i-clock"/></svg></div>
+    <div class="ic on"><svg><use href="#i-music"/></svg></div>
+    <div class="ic"><svg><use href="#i-chart"/></svg></div>
+    <div class="ic"><svg><use href="#i-folder"/></svg></div>
+    <div class="spacer"></div>
+    <div class="ic"><svg><use href="#i-gear"/></svg></div>
+    <div class="avatar"></div>
+  </div>
+  <div class="stage">
+    <div class="topbar">
+      <div class="wordmark"><span class="dot"></span>DSH Music</div>
+      <div class="tabs"><span class="tab">发现</span><span class="tab">歌单</span><span class="tab">排行榜</span><span class="tab">我的收藏</span></div>
+      <div class="chip green"><svg width="12" height="12"><use href="#i-user"/></svg>已登录</div>
+    </div>
+    <div class="content">
+      <div class="search-hero">
+        <div class="search-big"><svg><use href="#i-search"/></svg><span class="kw">海阔天空</span><span class="caret"></span><span class="btn">搜索</span></div>
+        <div class="stype"><span class="on">综合</span><span>单曲</span><span>歌单</span><span>歌手</span><span>专辑</span></div>
+      </div>
+      <div class="pl">
+        <div class="res-hint">找到 1000+ 条与「海阔天空」相关的结果</div>
+        <div class="tracks">
+          <div class="trk"><span class="idx">1</span><span class="tt">海阔天空<span class="vip">VIP</span></span><span class="ar">Beyond</span><span class="al">海阔天空</span><span class="dur">5:24</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+          <div class="trk"><span class="idx">2</span><span class="tt">海阔天空 试唱版</span><span class="ar">Beyond</span><span class="al">华纳超极品音色系列</span><span class="dur">5:21</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+          <div class="trk"><span class="idx">3</span><span class="tt">海阔天空 (Live)</span><span class="ar">Beyond</span><span class="al">Live & Basic</span><span class="dur">5:47</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+          <div class="trk"><span class="idx">4</span><span class="tt">海阔天空</span><span class="ar">信</span><span class="al">海阔天空</span><span class="dur">4:44</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+          <div class="trk"><span class="idx">5</span><span class="tt">海阔天空《中国合伙人》主题曲</span><span class="ar">筷子兄弟</span><span class="al">猛龙过江</span><span class="dur">4:31</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+          <div class="trk"><span class="idx">6</span><span class="tt">海阔天空</span><span class="ar">动力火车</span><span class="al">当</span><span class="dur">4:58</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+          <div class="trk"><span class="idx">7</span><span class="tt">海阔天空 2023 重制版</span><span class="ar">Beyond乐队致敬团</span><span class="al">致敬黄家驹</span><span class="dur">5:10</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+          <div class="trk"><span class="idx">8</span><span class="tt">海阔天空(钢琴版)</span><span class="ar">Piano Kings</span><span class="al">钢琴粤语</span><span class="dur">4:12</span><span class="ops"><svg><use href="#i-play"/></svg><svg><use href="#i-heart"/></svg></span></div>
+        </div>
+        <div class="sec-head"><h3>相关歌单</h3><span class="more">查看全部 ›</span></div>
+        <div class="grid" style="grid-template-columns: repeat(4, 1fr);">
+          <div class="card"><div class="cover g5" style="height:96px"><span class="glyph">KTV</span><span class="plays"><svg><use href="#i-play"/></svg>1070万</span></div><div class="cap"><div class="t">『华语』KTV最佳对唱</div></div></div>
+          <div class="card"><div class="cover g10" style="height:96px"><span class="glyph">粤语</span><span class="plays"><svg><use href="#i-play"/></svg>44.9万</span></div><div class="cap"><div class="t">粤语黄金年代</div></div></div>
+          <div class="card"><div class="cover g1" style="height:96px"><span class="glyph">摇滚</span><span class="plays"><svg><use href="#i-play"/></svg>96.2万</span></div><div class="cap"><div class="t">华语摇滚编年史</div></div></div>
+          <div class="card"><div class="cover g3" style="height:96px"><span class="glyph">青春</span><span class="plays"><svg><use href="#i-play"/></svg>21.8万</span></div><div class="cap"><div class="t">一代人的青春纪念册</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="playerbar">
+      <div class="pb-cover"></div>
+      <div class="pb-meta"><div class="t">海屿你</div><div class="a">马也_Crabbit</div></div>
+      <div class="pb-center">
+        <div class="pb-ctrl">
+          <span class="btn"><svg><use href="#i-prev"/></svg></span>
+          <span class="play"><svg><use href="#i-pause"/></svg></span>
+          <span class="btn"><svg><use href="#i-next"/></svg></span>
+        </div>
+        <div class="pb-track"><span>1:41</span><div class="bar"><div class="fill"></div><div class="knob"></div></div><span>4:02</span></div>
+      </div>
+      <div class="pb-right">
+        <span class="vol"><svg><use href="#i-vol"/></svg><span class="mini"><i></i></span></span>
+        <span class="on"><svg><use href="#i-repeat"/></svg></span>
+        <svg><use href="#i-heart"/></svg>
+        <svg><use href="#i-lyric"/></svg>
+        <svg><use href="#i-queue"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ④ 正在播放 · 歌词 ═══════════ -->
+<div class="screen" id="s-np" hidden>
+  <div class="rail">
+    <div class="logo">DS</div>
+    <div class="ic"><svg><use href="#i-chat"/></svg></div>
+    <div class="ic"><svg><use href="#i-comp"/></svg></div>
+    <div class="ic"><svg><use href="#i-clock"/></svg></div>
+    <div class="ic on"><svg><use href="#i-music"/></svg></div>
+    <div class="ic"><svg><use href="#i-chart"/></svg></div>
+    <div class="ic"><svg><use href="#i-folder"/></svg></div>
+    <div class="spacer"></div>
+    <div class="ic"><svg><use href="#i-gear"/></svg></div>
+    <div class="avatar"></div>
+  </div>
+  <div class="stage">
+    <div class="content">
+      <div class="np-bg"></div>
+      <div class="np">
+        <div class="np-cover"><div class="disc"></div></div>
+        <div class="np-lyrics">
+          <div class="ly">
+            <span>海屿你 - 马也_Crabbit</span>
+            <span>词:马也_Crabbit / 曲:马也_Crabbit</span>
+            <span class="near">晚风把心事吹散在人海</span>
+            <span class="near">潮汐漫过堤岸不肯离开</span>
+            <span class="on">我隔着岛屿想对你说爱</span>
+            <span class="near">浪花却替我先表态</span>
+            <span class="near">如果思念有声音</span>
+            <span class="near">那一定是海鸣</span>
+            <span>一遍遍拍打礁石的回音</span>
+            <span>我想带你去看海</span>
+            <span>看云被夕阳染红的样子</span>
+            <span>把所有温柔都留给你</span>
+            <span>在每一次涨潮的时刻</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="playerbar" style="background: rgba(13,14,18,.72); backdrop-filter: blur(10px);">
+      <div class="pb-cover"></div>
+      <div class="pb-meta"><div class="t">海屿你</div><div class="a">马也_Crabbit</div></div>
+      <div class="pb-center">
+        <div class="pb-ctrl">
+          <span class="btn"><svg><use href="#i-prev"/></svg></span>
+          <span class="play"><svg><use href="#i-pause"/></svg></span>
+          <span class="btn"><svg><use href="#i-next"/></svg></span>
+        </div>
+        <div class="pb-track"><span>1:41</span><div class="bar"><div class="fill"></div><div class="knob"></div></div><span>4:02</span></div>
+      </div>
+      <div class="pb-right">
+        <span class="vol"><svg><use href="#i-vol"/></svg><span class="mini"><i></i></span></span>
+        <span class="on"><svg><use href="#i-repeat"/></svg></span>
+        <svg style="color:#ff6b81"><use href="#i-heart"/></svg>
+        <span class="on"><svg><use href="#i-lyric"/></svg></span>
+        <svg><use href="#i-queue"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ⑤ 播放队列 ═══════════ -->
+<div class="screen" id="s-queue" hidden>
+  <div class="rail">
+    <div class="logo">DS</div>
+    <div class="ic"><svg><use href="#i-chat"/></svg></div>
+    <div class="ic"><svg><use href="#i-comp"/></svg></div>
+    <div class="ic"><svg><use href="#i-clock"/></svg></div>
+    <div class="ic on"><svg><use href="#i-music"/></svg></div>
+    <div class="ic"><svg><use href="#i-chart"/></svg></div>
+    <div class="ic"><svg><use href="#i-folder"/></svg></div>
+    <div class="spacer"></div>
+    <div class="ic"><svg><use href="#i-gear"/></svg></div>
+    <div class="avatar"></div>
+  </div>
+  <div class="stage">
+    <div class="topbar">
+      <div class="wordmark"><span class="dot"></span>DSH Music</div>
+      <div class="tabs"><span class="tab on">发现</span><span class="tab">歌单</span><span class="tab">排行榜</span><span class="tab">我的收藏</span></div>
+      <div class="searchbox"><svg><use href="#i-search"/></svg>搜索歌曲、歌手、专辑、歌单</div>
+      <div class="chip green"><svg width="12" height="12"><use href="#i-user"/></svg>已登录</div>
+    </div>
+    <div class="content">
+      <div class="home" style="opacity:.45">
+        <div class="hero-row">
+          <div class="hero" style="opacity:.7"><h2>每日推荐</h2></div>
+          <div class="side-card" style="opacity:.7"></div>
+        </div>
+      </div>
+    </div>
+    <div class="dim"></div>
+    <div class="queue">
+      <div class="q-head"><svg width="15" height="15"><use href="#i-queue"/></svg>播放列表<span class="n">( 12 )</span>
+        <span class="ops"><svg><use href="#i-trash"/></svg><svg><use href="#i-close"/></svg></span>
+      </div>
+      <div class="q-list">
+        <div class="q-item"><div class="q-cover g5"></div><div class="q-meta"><div class="t">情绪回收站</div><div class="a">失落花园_</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g7"></div><div class="q-meta"><div class="t">MANGATA(一步三摇)</div><div class="a">GTR7</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g3"></div><div class="q-meta"><div class="t">世间美好与你环环相扣</div><div class="a">柏松</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g2"></div><div class="q-meta"><div class="t">没关系</div><div class="a">刘大拿</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item playing"><div class="q-cover" style="background:linear-gradient(135deg,#3b2a63,#1a1430)"></div><div class="q-meta"><div class="t">海屿你</div><div class="a">马也_Crabbit</div></div><div class="ops"><svg style="color:var(--accent)"><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-pause"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g9"></div><div class="q-meta"><div class="t">山楂树之恋</div><div class="a">程佳佳</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g6"></div><div class="q-meta"><div class="t">灰姑娘</div><div class="a">梁咏琪</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g10"></div><div class="q-meta"><div class="t">挪威的森林</div><div class="a">伍佰</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g1"></div><div class="q-meta"><div class="t">海阔天空</div><div class="a">Beyond</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g4"></div><div class="q-meta"><div class="t">水星记</div><div class="a">郭顶</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g8"></div><div class="q-meta"><div class="t">红马</div><div class="a">一颗狼星</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+        <div class="q-item"><div class="q-cover g2"></div><div class="q-meta"><div class="t">海誓山盟</div><div class="a">王震</div></div><div class="ops"><svg><use href="#i-heart"/></svg><span class="playdot"><svg><use href="#i-play"/></svg></span></div></div>
+      </div>
+    </div>
+    <div class="playerbar">
+      <div class="pb-cover"></div>
+      <div class="pb-meta"><div class="t">海屿你</div><div class="a">马也_Crabbit</div></div>
+      <div class="pb-center">
+        <div class="pb-ctrl">
+          <span class="btn"><svg><use href="#i-prev"/></svg></span>
+          <span class="play"><svg><use href="#i-pause"/></svg></span>
+          <span class="btn"><svg><use href="#i-next"/></svg></span>
+        </div>
+        <div class="pb-track"><span>1:41</span><div class="bar"><div class="fill"></div><div class="knob"></div></div><span>4:02</span></div>
+      </div>
+      <div class="pb-right">
+        <span class="vol"><svg><use href="#i-vol"/></svg><span class="mini"><i></i></span></span>
+        <span class="on"><svg><use href="#i-repeat"/></svg></span>
+        <svg><use href="#i-heart"/></svg>
+        <svg><use href="#i-lyric"/></svg>
+        <span class="on"><svg><use href="#i-queue"/></svg></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ⑥ 设置 ═══════════ -->
+<div class="screen" id="s-set" hidden>
+  <div class="rail">
+    <div class="logo">DS</div>
+    <div class="ic"><svg><use href="#i-chat"/></svg></div>
+    <div class="ic"><svg><use href="#i-comp"/></svg></div>
+    <div class="ic"><svg><use href="#i-clock"/></svg></div>
+    <div class="ic on"><svg><use href="#i-music"/></svg></div>
+    <div class="ic"><svg><use href="#i-chart"/></svg></div>
+    <div class="ic"><svg><use href="#i-folder"/></svg></div>
+    <div class="spacer"></div>
+    <div class="ic"><svg><use href="#i-gear"/></svg></div>
+    <div class="avatar"></div>
+  </div>
+  <div class="stage">
+    <div class="topbar">
+      <div class="wordmark"><span class="dot"></span>DSH Music</div>
+      <div class="tabs"><span class="tab">发现</span><span class="tab">歌单</span><span class="tab">排行榜</span><span class="tab">我的收藏</span></div>
+      <div class="chip green"><svg width="12" height="12"><use href="#i-user"/></svg>已登录</div>
+    </div>
+    <div class="content">
+      <div class="set">
+        <h1>设置</h1>
+        <div class="set-sec">账号</div>
+        <div class="row">
+          <div class="lab"><div class="t">网易云 Cookie</div><div class="d">当前状态:已登录(亮***7)· 解锁高音质与 VIP 曲目</div></div>
+          <div class="ctl"><span class="btn-o">更新 Cookie</span><span class="btn-o" style="color:var(--danger)">退出登录</span></div>
+        </div>
+        <div class="set-sec">播放</div>
+        <div class="row">
+          <div class="lab"><div class="t">默认音质</div><div class="d">播放与试听使用的音质,无损需要会员账号</div></div>
+          <div class="ctl"><div class="seg"><span>标准</span><span class="on">较高</span><span>高</span><span>无损</span></div></div>
+        </div>
+        <div class="row">
+          <div class="lab"><div class="t">播放模式</div><div class="d">顺序 / 列表循环 / 单曲循环 / 随机</div></div>
+          <div class="ctl"><div class="seg"><span>顺序</span><span class="on">循环</span><span>单曲</span><span>随机</span></div></div>
+        </div>
+        <div class="row">
+          <div class="lab"><div class="t">桌面歌词</div><div class="d">跟随 DSH 窗口显示悬浮歌词(实验性)</div></div>
+          <div class="ctl"><div class="switch"><i></i></div></div>
+        </div>
+        <div class="set-sec">外观</div>
+        <div class="row">
+          <div class="lab"><div class="t">主题</div><div class="d">跟随 DSH 深色 / 浅色主题</div></div>
+          <div class="ctl"><div class="seg"><span class="on">跟随 DSH</span><span>深色</span><span>浅色</span></div></div>
+        </div>
+        <div class="set-sec">存储</div>
+        <div class="row">
+          <div class="lab"><div class="t">缓存管理</div><div class="d">已缓存 128 MB · 歌词 / 封面 / 音频缓存</div></div>
+          <div class="ctl"><span class="btn-o">清除缓存</span></div>
+        </div>
+        <div class="row">
+          <div class="lab"><div class="t">下载目录</div><div class="d">C:\Users\caimc\Music\DSH-Music</div></div>
+          <div class="ctl"><span class="btn-o">更改</span></div>
+        </div>
+        <div class="note">v0.1.0 · 数据来源:网易云音乐开放接口(社区维护),仅供个人学习研究,音乐版权归网易云及版权方所有。<span class="warn">请勿用于商业用途。</span></div>
+      </div>
+    </div>
+    <div class="playerbar">
+      <div class="pb-cover"></div>
+      <div class="pb-meta"><div class="t">海屿你</div><div class="a">马也_Crabbit</div></div>
+      <div class="pb-center">
+        <div class="pb-ctrl">
+          <span class="btn"><svg><use href="#i-prev"/></svg></span>
+          <span class="play"><svg><use href="#i-pause"/></svg></span>
+          <span class="btn"><svg><use href="#i-next"/></svg></span>
+        </div>
+        <div class="pb-track"><span>1:41</span><div class="bar"><div class="fill"></div><div class="knob"></div></div><span>4:02</span></div>
+      </div>
+      <div class="pb-right">
+        <span class="vol"><svg><use href="#i-vol"/></svg><span class="mini"><i></i></span></span>
+        <span class="on"><svg><use href="#i-repeat"/></svg></span>
+        <svg><use href="#i-heart"/></svg>
+        <svg><use href="#i-lyric"/></svg>
+        <svg><use href="#i-queue"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 锚点切换显示
+  const screens = [...document.querySelectorAll('.screen')];
+  function show(id) {
+    screens.forEach(s => s.hidden = ('#' + s.id) !== id);
+    document.querySelectorAll('.switcher a').forEach(a => a.classList.toggle('cur', a.hash === id));
+  }
+  function fromHash() {
+    const h = location.hash || '#s-home';
+    show(screens.some(s => '#' + s.id === h) ? h : '#s-home');
+    window.scrollTo({ top: 0 });
+  }
+  window.addEventListener('hashchange', fromHash);
+  fromHash();
+</script>
+</body>
+</html>
