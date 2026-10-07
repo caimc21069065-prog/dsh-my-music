@@ -1,0 +1,7 @@
+# dsh-plugin-music bundle patch: mounts the music tool plugin into the profile.
+# The bundle itself is installed as a profile dependency, so the bare package
+# name resolves as the plugin module.
+
+- insert:
+    - id: music
+      name: dsh-plugin-music
