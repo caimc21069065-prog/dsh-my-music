@@ -110,14 +110,16 @@
 
 /* 歌曲行 */
 .dsh-music .song-row {
-  display: grid; grid-template-columns: 36px minmax(0,1fr) 180px 200px 56px 96px; gap: 10px; align-items: center;
-  height: 46px; padding: 0 12px; border-radius: 12px; font-size: 13.5px;
+  display: grid; grid-template-columns: 36px minmax(0,1fr) 168px 180px 56px 124px; gap: 10px; align-items: center;
+  height: 46px; padding: 0 12px; border-radius: 12px; font-size: 13.5px; position: relative;
 }
 .dsh-music .song-row.head { color: var(--m-secondary); font-size: 12px; height: 36px; }
 .dsh-music .song-row:nth-child(odd):not(.head) { background: rgba(255,255,255,.03); }
 .dsh-music .song-row:hover { background: var(--m-panel); }
 .dsh-music .song-row.playing { background: rgba(34,197,94,.1); }
 .dsh-music .song-row.playing .name { color: var(--m-primary); }
+.dsh-music .song-row.playing.sounding { background: rgba(34,197,94,.16); }
+.dsh-music .song-row.playing.sounding .idx { color: var(--m-primary); }
 .dsh-music .song-row .idx { color: var(--m-secondary); font-variant-numeric: tabular-nums; }
 .dsh-music .song-row .name { font-weight: 500; display: flex; align-items: center; gap: 8px; overflow: hidden; }
 .dsh-music .song-row .name .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -129,10 +131,23 @@
 }
 .dsh-music .song-row .dur { color: var(--m-secondary); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .dsh-music .song-row .ops { display: flex; gap: 4px; justify-content: flex-end; opacity: 0; transition: opacity .15s; }
-.dsh-music .song-row:hover .ops { opacity: 1; }
+.dsh-music .song-row:hover .ops, .dsh-music .song-row .ops.show { opacity: 1; }
 .dsh-music .song-row .ops .icon-btn { width: 30px; height: 30px; }
 .dsh-music .song-row .ops .icon-btn svg { width: 15px; height: 15px; }
 .dsh-music .song-row .ops .icon-btn.on { opacity: 1; }
+.dsh-music .song-row .ops .icon-btn.busy { opacity: .5; }
+
+/* 下载结果提示:浮在歌曲行右侧,不挤占列表栅格 */
+.dsh-music .dl-note {
+  font-size: 11.5px; color: var(--m-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dsh-music .song-row .dl-note {
+  position: absolute; right: 132px; top: 50%; transform: translateY(-50%);
+  background: var(--m-panel-2); border-radius: 8px; padding: 4px 10px; max-width: 360px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.4);
+}
+.dsh-music .dl-note.err { color: #ff9a9a; }
+.dsh-music .playbar .right .dl-note { max-width: 260px; }
 
 /* 播放条 */
 .dsh-music .playbar {
@@ -141,16 +156,18 @@
   display: flex; align-items: center; gap: 14px; padding: 0 var(--m-page-px); cursor: pointer;
 }
 .dsh-music .playbar .progress {
-  position: absolute; top: -6px; left: 0; right: 0; height: 12px; display: flex; align-items: center;
-  cursor: default; touch-action: none;
+  position: absolute; top: -8px; left: 0; right: 0; height: 18px; display: flex; align-items: center;
+  cursor: pointer; touch-action: none;
 }
-.dsh-music .playbar .progress .track { height: 4px; width: 100%; border-radius: 2px; background: var(--m-panel-2); position: relative; }
+.dsh-music .playbar .progress.off { cursor: default; opacity: .45; }
+.dsh-music .playbar .progress .track { height: 4px; width: 100%; border-radius: 2px; background: var(--m-panel-2); position: relative; transition: height .12s; }
+.dsh-music .playbar .progress:hover .track, .dsh-music .playbar .progress.dragging .track { height: 6px; }
 .dsh-music .playbar .progress .fill { position: absolute; inset: 0 auto 0 0; background: var(--m-primary); border-radius: 2px; }
 .dsh-music .playbar .progress .knob {
   position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; background: var(--m-primary);
   transform: translate(-50%, -50%); box-shadow: 0 1px 4px rgba(0,0,0,.5); opacity: 0; transition: opacity .15s;
 }
-.dsh-music .playbar .progress:hover .knob { opacity: 1; }
+.dsh-music .playbar .progress:hover .knob, .dsh-music .playbar .progress.dragging .knob { opacity: 1; }
 .dsh-music .playbar .cover {
   width: 56px; height: 56px; border-radius: 16px; object-fit: cover; background: var(--m-panel); flex-shrink: 0;
 }

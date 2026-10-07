@@ -3,7 +3,9 @@
 // UI 通过 usePlayer() 订阅;音乐数据(id/name/artist/album/cover)由页面在加入队列时补全。
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { streamUrl } from './api.js';
+// 必须静态引入:构建参数 minifyIdentifiers:false + treeShaking:false 下,
+// esbuild 会把动态引入本目录模块的解构变量编译成未改名的自由引用(运行期 ReferenceError)。
+import { api, parseLrc, streamUrl } from './api.js';
 
 const STORE_KEY = 'dsh-music.player.v1';
 
@@ -35,6 +37,7 @@ const state = {
   playing: false,
   position: 0,
   duration: 0,
+  canSeek: false,   // 音频元数据已到,进度条可跳转
   mode: 'loop',
   volume: 0.8,
   muted: false,
@@ -63,6 +66,35 @@ function set(patch) {
   emit();
 }
 
+function currentTrack() {
+  return state.index >= 0 && state.index < state.queue.length ? state.queue[state.index] : null;
+}
+
+/**
+ * 可跳转上限:元素时长优先(网易云试听片段只有 30s,列表时长不可信),
+ * 其次缓冲尾部;都没有说明元数据未到,返回 null。
+ */
+function seekCeiling(audio) {
+  if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+  if (audio.seekable.length > 0) return audio.seekable.end(audio.seekable.length - 1);
+  return null;
+}
+
+// 元数据未到达时的跳转意图,拿到时长后补一次(否则点进度条毫无反应)
+let pendingSeek = null;
+
+function syncMediaMeta() {
+  const audio = getAudio();
+  const ceiling = seekCeiling(audio);
+  const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : (ceiling ?? state.duration);
+  set({ duration, canSeek: ceiling !== null });
+  if (pendingSeek !== null && ceiling !== null) {
+    const sec = pendingSeek;
+    pendingSeek = null;
+    seek(sec);
+  }
+}
+
 export function initPlayer() {
   const saved = loadState();
   if (saved) {
@@ -76,12 +108,15 @@ export function initPlayer() {
   const audio = getAudio();
   audio.volume = state.volume;
   audio.addEventListener('timeupdate', () => set({ position: audio.currentTime }));
-  audio.addEventListener('durationchange', () => set({ duration: audio.duration || 0 }));
+  audio.addEventListener('durationchange', syncMediaMeta);
+  audio.addEventListener('loadedmetadata', syncMediaMeta);
+  audio.addEventListener('canplay', syncMediaMeta);
   audio.addEventListener('play', () => set({ playing: true }));
   audio.addEventListener('pause', () => set({ playing: false }));
   audio.addEventListener('ended', () => nextSong(true));
   audio.addEventListener('error', () => {
-    set({ playing: false });
+    pendingSeek = null;
+    set({ playing: false, canSeek: false });
     const track = currentTrack();
     if (track) {
       diagnosePlayFailure(track.id).then((note) => set({ errorNote: note }));
@@ -89,15 +124,18 @@ export function initPlayer() {
   });
 }
 
-function currentTrack() {
-  return state.index >= 0 && state.index < state.queue.length ? state.queue[state.index] : null;
-}
-
 export function playTrack(index) {
   if (index < 0 || index >= state.queue.length) return;
   const track = state.queue[index];
   const audio = getAudio();
-  set({ index, position: 0, duration: track.duration ? track.duration / 1000 : 0, errorNote: undefined });
+  pendingSeek = null;
+  set({
+    index,
+    position: 0,
+    duration: track.duration ? track.duration / 1000 : 0,
+    canSeek: false,
+    errorNote: undefined
+  });
   audio.src = streamUrl(track.id, state.level);
   audio.play().catch(() => set({ playing: false }));
 }
@@ -105,8 +143,7 @@ export function playTrack(index) {
 /** 音频加载失败后,查一次曲目的可播放性,给用户人话提示。 */
 async function diagnosePlayFailure(songId) {
   try {
-    const mod = await import('./api.js');
-    const res = await mod.api.songUrls([songId]);
+    const res = await api.songUrls([songId]);
     const d = (res.items || [])[0];
     if (!d) return '拿不到播放信息:歌曲可能已下架';
     if (!d.url && d.fee === 1) return 'VIP 歌曲:在插件设置里配置网易云 Cookie(需含 MUSIC_U)后可试听或播放';
@@ -144,8 +181,9 @@ export function removeFromQueue(index) {
     const audio = getAudio();
     audio.pause();
     audio.removeAttribute('src');
+    pendingSeek = null;
     indexNew = Math.min(index, queue.length - 1);
-    set({ queue, index: -1, playing: false, position: 0, duration: 0 });
+    set({ queue, index: -1, playing: false, position: 0, duration: 0, canSeek: false });
     if (indexNew >= 0) playTrack(indexNew);
     return;
   }
@@ -156,7 +194,8 @@ export function clearQueue() {
   const audio = getAudio();
   audio.pause();
   audio.removeAttribute('src');
-  set({ queue: [], index: -1, playing: false, position: 0, duration: 0 });
+  pendingSeek = null;
+  set({ queue: [], index: -1, playing: false, position: 0, duration: 0, canSeek: false });
 }
 
 export function togglePlay() {
@@ -185,11 +224,17 @@ function prevSong() {
 }
 
 export function seek(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return;
   const audio = getAudio();
-  if (Number.isFinite(sec) && audio.duration) {
-    audio.currentTime = Math.min(Math.max(sec, 0), audio.duration);
-    set({ position: audio.currentTime });
+  const ceiling = seekCeiling(audio);
+  if (ceiling === null) {
+    pendingSeek = sec; // 元数据未到,先记下,loadedmetadata 后自动补跳
+    return;
   }
+  pendingSeek = null;
+  audio.currentTime = Math.min(sec, ceiling);
+  const realDuration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : state.duration;
+  set({ position: audio.currentTime, duration: realDuration, canSeek: true });
 }
 
 export function setVolume(v) {
@@ -227,22 +272,27 @@ export function usePlayer() {
   return snap;
 }
 
-/** 当前播放曲目的歌词(拉取 + 解析 + 翻译)。 */
+const EMPTY_LYRIC = { lines: [], translation: [], loading: false, error: undefined };
+
+/** 当前播放曲目的歌词(拉取 + 解析 + 翻译);加载中/失败原因一并返回,便于界面说明。 */
 export function useLyric(songId) {
-  const [data, setData] = useState({ lines: [], translation: [] });
+  const [data, setData] = useState(EMPTY_LYRIC);
   useEffect(() => {
     let alive = true;
     if (!songId) {
-      setData({ lines: [], translation: [] });
+      setData(EMPTY_LYRIC);
       return undefined;
     }
-    import('./api.js').then(({ api, parseLrc }) => api.lyric(songId)).then((d) => {
+    setData({ ...EMPTY_LYRIC, loading: true });
+    api.lyric(songId).then((d) => {
       if (!alive) return;
       setData({
         lines: parseLrc(d.lyric),
-        translation: parseLrc(d.translation)
+        translation: parseLrc(d.translation),
+        loading: false,
+        error: undefined
       });
-    }).catch(() => alive && setData({ lines: [], translation: [] }));
+    }).catch((error) => alive && setData({ ...EMPTY_LYRIC, error: error.message }));
     return () => { alive = false; };
   }, [songId]);
   return data;

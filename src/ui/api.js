@@ -25,6 +25,8 @@ export const api = {
     getJson('/search', { keywords, type, limit, offset }),
   songUrls: (ids, level) => getJson('/song/urls', { ids: ids.join(','), level }),
   lyric: (id) => getJson('/lyric', { id }),
+  download: ({ id, name, artist, level }) =>
+    getJson('/download', { id, name: name ?? '', artist: artist ?? '', ...(level ? { level } : {}) }),
   playlistDetail: (id) => getJson('/playlist/detail', { id }),
   playlistTracks: (id, limit = 50, offset = 0) => getJson('/playlist/tracks', { id, limit, offset }),
   toplists: () => getJson('/toplists'),
@@ -40,6 +42,7 @@ export function parseLrc(text) {
     const matches = [...raw.matchAll(/\[(\d+):(\d+)(?:[.:](\d+))?\]/g)];
     if (matches.length === 0) continue;
     const content = raw.replace(/\[[^\]]*\]/g, '').trim();
+    if (content === '暂无歌词') continue; // 网易云对无歌词曲目返回的占位行
     for (const m of matches) {
       const time = Number(m[1]) * 60 + Number(m[2]) + (m[3] ? Number(`0.${m[3]}`) : 0);
       lines.push({ time, text: content });

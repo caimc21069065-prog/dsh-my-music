@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { api, formatCount } from './api.js';
-import { usePlayer, usePlayerActions, useFavorite } from './player.jsx';
+import { usePlayer, usePlayerActions } from './player.jsx';
 import { useAccount, refreshAccount } from './account.jsx';
 import { CoverCard, SongRow } from './components.jsx';
 import { IconPlay } from './icons.jsx';
@@ -125,7 +125,6 @@ export function MusicListPage({ params, nav }) {
     () => (isToplist ? api.toplistTracks(params.id) : api.playlistTracks(params.id, 100)),
     [params.kind, params.id]
   );
-  const snap = usePlayer();
   const list = (tracks.data?.tracks ?? []).map((t) => ({
     id: t.id,
     name: t.name,
@@ -170,7 +169,6 @@ export function MusicListPage({ params, nav }) {
             key={t.id}
             track={t}
             index={i}
-            playing={snap.queue[snap.index]?.id === t.id}
             onPlay={() => actions.playQueue(list, i)}
           />
         ))}
@@ -237,7 +235,6 @@ function HotSearch({ onPick }) {
 
 function SearchResult({ keyword, type, onType, nav }) {
   const actions = usePlayerActions();
-  const snap = usePlayer();
   const [state, setState] = useState({ loading: true, items: [], error: null });
   useEffect(() => {
     let alive = true;
@@ -272,7 +269,7 @@ function SearchResult({ keyword, type, onType, nav }) {
             </button>
           ) : <div className="empty">没有找到相关内容</div>}
           {list.map((t, i) => (
-            <SongRow key={t.id} track={{ ...t, vip: t.fee === 1 }} index={i} playing={snap.queue[snap.index]?.id === t.id}
+            <SongRow key={t.id} track={{ ...t, vip: t.fee === 1 }} index={i}
               onPlay={() => actions.playQueue(list, i)} />
           ))}
         </div>

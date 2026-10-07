@@ -1,13 +1,13 @@
 // src/ui/components.jsx — 共享组件:歌曲行 / 封面卡 / 播放条 / 队列抽屉 / 沉浸式播放页
 import React, { useState } from 'react';
 
-import { formatTime, formatCount } from './api.js';
+import { api, formatTime, formatCount } from './api.js';
 import {
-  usePlayer, usePlayerActions, useLyric, useFavorite, PLAY_MODES
+  usePlayer, usePlayerActions, useLyric, useFavorite, useIsCurrent, PLAY_MODES
 } from './player.jsx';
 import {
   IconPlay, IconPlayCount, IconPause, IconPrev, IconNext, IconVolume, IconMute, IconRepeat, IconOne,
-  IconShuffle, IconHeart, IconQueue, IconLyric, IconChevDown, IconTrash, IconClose
+  IconShuffle, IconHeart, IconQueue, IconLyric, IconChevDown, IconTrash, IconClose, IconDown
 } from './icons.jsx';
 
 const MODE_ICON = { order: IconRepeat, one: IconOne, shuffle: IconShuffle };
@@ -36,12 +36,103 @@ export function VerticalSlider({ value, onChange }) {
   );
 }
 
+/**
+ * 自绘横向进度条:按下即预览,松手才提交一次 seek(避免拖动过程反复请求音频流);
+ * 无 pointer 事件的环境(如部分自动化/合成 click)退回 click 直接跳转。
+ */
+export function SeekBar({ position, duration, canSeek = true, onSeek }) {
+  const ref = React.useRef(null);
+  const dragging = React.useRef(false);
+  const sawPointer = React.useRef(false);
+  const [dragPct, setDragPct] = useState(null);
+
+  const ratioOf = (e) => {
+    const rect = ref.current.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+  };
+  const commit = (ratio) => {
+    dragging.current = false;
+    setDragPct(null);
+    onSeek(ratio * duration);
+  };
+  const pct = dragPct ?? (duration > 0 ? Math.min((position / duration) * 100, 100) : 0);
+
+  return (
+    <div
+      ref={ref}
+      className={`progress${dragPct !== null ? ' dragging' : ''}${canSeek ? '' : ' off'}`}
+      title={canSeek ? '点击或拖动调整进度' : '进度暂不可调整(音频未就绪)'}
+      onPointerDown={(e) => {
+        sawPointer.current = true;
+        dragging.current = true;
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 合成事件无活动指针 */ }
+        setDragPct(ratioOf(e) * 100);
+      }}
+      onPointerMove={(e) => { if (dragging.current) setDragPct(ratioOf(e) * 100); }}
+      onPointerUp={(e) => { if (dragging.current) commit(ratioOf(e)); }}
+      onPointerCancel={() => { dragging.current = false; setDragPct(null); }}
+      onClick={(e) => {
+        if (sawPointer.current) { sawPointer.current = false; return; }
+        commit(ratioOf(e));
+      }}
+    >
+      <div className="track">
+        <div className="fill" style={{ width: `${pct}%` }} />
+        <div className="knob" style={{ left: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** 下载当前曲目到宿主目录,按钮就地反馈保存路径。 */
+export function DownloadButton({ track, level, onStateChange }) {
+  const [note, setNote] = useState(null); // { busy, error, text }
+  const timer = React.useRef(null);
+  const show = (next, ttl) => {
+    clearTimeout(timer.current);
+    setNote(next);
+    onStateChange?.(next);
+    if (next && ttl) timer.current = setTimeout(() => { setNote(null); onStateChange?.(null); }, ttl);
+  };
+  React.useEffect(() => () => clearTimeout(timer.current), []);
+
+  const start = async () => {
+    if (note?.busy) return;
+    show({ busy: true, text: '下载中…' }, 0);
+    try {
+      const r = await api.download({ id: track.id, name: track.name, artist: track.artist, level });
+      show({ text: `已保存:${r.path}` }, 9000);
+    } catch (e) {
+      show({ error: true, text: e.message }, 9000);
+    }
+  };
+
+  return (
+    <>
+      <button
+        className={`icon-btn${note?.busy ? ' busy' : ''}`}
+        onClick={(e) => { e.stopPropagation(); start(); }}
+        title={note?.busy ? '下载中…' : `下载:${track.name}`}
+      >
+        <IconDown />
+      </button>
+      {note ? <span className={`dl-note${note.error ? ' err' : ''}${note.busy ? ' busy' : ''}`}>{note.text}</span> : null}
+    </>
+  );
+}
+
 /** 歌单/榜单/搜索共用的歌曲行。track: {id,name,artist,album,duration,vip} */
-export function SongRow({ track, index, onPlay, showAlbum = true, playing = false }) {
+export function SongRow({ track, index, onPlay, showAlbum = true }) {
+  const snap = usePlayer();
+  const actions = usePlayerActions();
   const { favorites, toggle } = useFavorite();
+  const [opsOpen, setOpsOpen] = useState(false);
+  const isCurrent = useIsCurrent(track.id);
+  const sounding = isCurrent && snap.playing;
   const dur = track.duration ? formatTime(track.duration / 1000) : track.durationText ?? '';
   return (
-    <div className={`song-row${playing ? ' playing' : ''}`} onDoubleClick={onPlay}>
+    <div className={`song-row${isCurrent ? ' playing' : ''}${sounding ? ' sounding' : ''}`} onDoubleClick={onPlay}>
       <span className="idx">{index + 1}</span>
       <span className="name">
         <span className="txt" title={track.name}>{track.name}</span>
@@ -50,7 +141,7 @@ export function SongRow({ track, index, onPlay, showAlbum = true, playing = fals
       <span className="artist">{track.artist}</span>
       {showAlbum ? <span className="album">{track.album}</span> : <span className="album" />}
       <span className="dur">{dur}</span>
-      <span className="ops">
+      <span className={`ops${opsOpen ? ' show' : ''}`}>
         <button
           className={`icon-btn${favorites.has(track.id) ? ' on' : ''}`}
           onClick={(e) => { e.stopPropagation(); toggle(track); }}
@@ -58,8 +149,13 @@ export function SongRow({ track, index, onPlay, showAlbum = true, playing = fals
         >
           <IconHeart filled={favorites.has(track.id)} />
         </button>
-        <button className="icon-btn" onClick={(e) => { e.stopPropagation(); onPlay(); }} title="播放">
-          <IconPlay />
+        <DownloadButton track={track} level={snap.level} onStateChange={setOpsOpen} />
+        <button
+          className="icon-btn"
+          onClick={(e) => { e.stopPropagation(); if (isCurrent) actions.togglePlay(); else onPlay(); }}
+          title={sounding ? '暂停' : isCurrent ? '继续播放' : '播放'}
+        >
+          {sounding ? <IconPause /> : <IconPlay />}
         </button>
       </span>
     </div>
@@ -97,10 +193,7 @@ export function CoverCard({ cover, name, sub, plays, onClick, onPlay }) {
 export function PlayBar({ onOpenFull, onOpenQueue }) {
   const snap = usePlayer();
   const actions = usePlayerActions();
-  const [dragValue, setDragValue] = useState(null);
   const [volOpen, setVolOpen] = useState(false);
-  const barRef = React.useRef(null);
-  const dragBar = React.useRef(false);
   const track = snap.index >= 0 ? snap.queue[snap.index] : null;
   if (!track) {
     return (
@@ -109,28 +202,15 @@ export function PlayBar({ onOpenFull, onOpenQueue }) {
       </div>
     );
   }
-  const pct = dragValue ?? (snap.duration ? (snap.position / snap.duration) * 100 : 0);
   const ModeIcon = MODE_ICON[snap.mode] ?? IconRepeat;
-  const seekFromEvent = (e) => {
-    const rect = barRef.current.getBoundingClientRect();
-    const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-    actions.seek(ratio * snap.duration);
-  };
   return (
     <div className="playbar" onDoubleClick={onOpenFull}>
-      <div
-        className="progress"
-        ref={barRef}
-        onPointerDown={(e) => { dragBar.current = true; e.currentTarget.setPointerCapture(e.pointerId); seekFromEvent(e); }}
-        onPointerMove={(e) => { if (dragBar.current) seekFromEvent(e); }}
-        onPointerUp={() => { dragBar.current = false; }}
-        onPointerCancel={() => { dragBar.current = false; }}
-      >
-        <div className="track">
-          <div className="fill" style={{ width: `${pct}%` }} />
-          <div className="knob" style={{ left: `${pct}%` }} />
-        </div>
-      </div>
+      <SeekBar
+        position={snap.position}
+        duration={snap.duration}
+        canSeek={snap.canSeek}
+        onSeek={actions.seek}
+      />
       <img className="cover" src={track.cover} alt="" />
       <div className="meta">
         <div className="t" title={track.name}>{track.name}</div>
@@ -258,7 +338,7 @@ export function MusicFull({ open, onClose }) {
         </div>
         <div className="mf-lyrics" ref={lyricBoxRef}>
           {lyric.lines.length === 0 ? (
-            <div className="empty">暂无歌词</div>
+            <div className="empty">{lyric.loading ? '歌词加载中…' : lyric.error ? `歌词加载失败:${lyric.error}` : '暂无歌词'}</div>
           ) : lyric.lines.map((line, i) => {
             const tr = transByTime.get(Math.round(line.time * 10) / 10);
             return (
@@ -271,14 +351,12 @@ export function MusicFull({ open, onClose }) {
         </div>
       </div>
       <div className="playbar" style={{ background: 'transparent', boxShadow: 'none' }} onDoubleClick={(e) => e.stopPropagation()}>
-        <div className="progress" onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          actions.seek(((e.clientX - rect.left) / rect.width) * snap.duration);
-        }}>
-          <div className="track">
-            <div className="fill" style={{ width: `${snap.duration ? (snap.position / snap.duration) * 100 : 0}%` }} />
-          </div>
-        </div>
+        <SeekBar
+          position={snap.position}
+          duration={snap.duration}
+          canSeek={snap.canSeek}
+          onSeek={actions.seek}
+        />
         <img className="cover" src={track.cover} alt="" />
         <div className="meta">
           <div className="t">{track.name}</div>
@@ -291,6 +369,7 @@ export function MusicFull({ open, onClose }) {
         </div>
         <span className="time">{formatTime(snap.position)} / {formatTime(snap.duration)}</span>
         <div className="right">
+          <DownloadButton track={track} level={snap.level} />
           <button className="icon-btn" onClick={actions.cycleMode}><ModeIcon /></button>
           <button className="icon-btn" onClick={onClose}><IconQueue /></button>
         </div>
