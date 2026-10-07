@@ -22,14 +22,17 @@ const mockJson = (url) => {
   if (url.includes('/lyric')) return { lyric: '[00:01]第一行\n[00:05]第二行', translation: '' };
   if (url.includes('/song/urls')) return { items: [] };
   if (url.includes('/health')) return { ok: true, hasCookie: false };
-  return {};
+  return undefined; // 未列出的接口(账号/扫码登录/退出)透传给真实宿主
 };
 
 const realFetch = window.fetch.bind(window);
 window.fetch = (input, init) => {
   const url = typeof input === 'string' ? input : input.url;
   if (url.startsWith('/music/api/')) {
-    return Promise.resolve(new Response(JSON.stringify(mockJson(url)), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const mock = mockJson(url);
+    if (mock !== undefined) {
+      return Promise.resolve(new Response(JSON.stringify(mock), { status: 200, headers: { 'content-type': 'application/json' } }));
+    }
   }
   return realFetch(input, init);
 };
