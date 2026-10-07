@@ -9,7 +9,9 @@ import path from 'node:path';
 
 import { apply } from '../lib/index.js';
 import { createMusicService } from '../lib/service.js';
+import { createNcm } from '../lib/ncm.js';
 import { mergeCookies, normalizeCookie } from '../lib/cookie.js';
+import { parseLrc } from '../src/ui/api.js';
 
 const registered = new Map();
 const routes = new Map();
@@ -74,7 +76,10 @@ console.log(`✓ /music/api/search: ${apiSearch.data.items[0].name} — ${apiSea
 const apiLyric = await api('/music/api/lyric?id=347230');
 assert.equal(apiLyric.status, 200);
 assert.ok(apiLyric.data.lyric.length > 0);
-console.log(`✓ /music/api/lyric: ${apiLyric.data.lyric.split('\n').length} 行`);
+// 回归:必须走经典接口。新版 lyric_new 会把头部若干行返回成 JSON 富文本,纯音乐曲目更是整段丢失
+assert.match(apiLyric.data.lyric, /^\[\d+:\d+/, '歌词应是标准 LRC');
+assert.ok(!/^\{"t":/m.test(apiLyric.data.lyric), '歌词里不应混入 JSON 富文本行');
+console.log(`✓ /music/api/lyric: ${apiLyric.data.lyric.split('\n').length} 行 LRC`);
 
 const apiPlaylists = await api('/music/api/playlists/hot?limit=3');
 assert.equal(apiPlaylists.status, 200);
@@ -137,6 +142,66 @@ assert.ok(playlistResult.tracks.length > 0);
   const bytes = res.bodyOf().length;
   assert.ok(bytes > 100000, `音频应非空(实际 ${bytes}B)`);
   console.log(`✓ /music/stream/347230: content-type=${res.headers['content-type']} bytes=${bytes}`);
+
+  // 快进依赖 Range 透传:浏览器 seek 会带 Range 重新请求同一个 /stream
+  const ranged = fakeRes();
+  await musicRoute({ method: 'GET', url: '/music/stream/347230', headers: { range: 'bytes=100000-' } }, ranged);
+  assert.equal(ranged.status, 206, `Range 请求应返回 206,实际 ${ranged.status}`);
+  assert.match(ranged.headers['content-range'] ?? '', /^bytes 100000-\d+\/\d+/, '应回传 content-range');
+  assert.equal(ranged.headers['accept-ranges'], 'bytes');
+  console.log(`✓ /music/stream Range: ${ranged.headers['content-range']} (${ranged.bodyOf().length}B)`);
+}
+
+// —— 下载到本地目录 ——
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-music-dl-'));
+  const downloadDir = path.join(dir, 'songs');
+  const payload = 'data:audio/mpeg;base64,' + Buffer.from('dsh-music-download-test').toString('base64');
+  const stubRoute = createMusicService({
+    ncm: {
+      async call() {
+        return { data: [{ id: 1, url: payload, type: 'mp3', level: 'standard', freeTrialInfo: null }] };
+      }
+    },
+    downloadDir
+  });
+  const call = async (qs) => {
+    const res = fakeRes();
+    await stubRoute({ method: 'GET', url: '/music/api/download' + qs, headers: {} }, res);
+    return { status: res.status, data: JSON.parse(res.bodyOf().toString('utf-8') || '{}') };
+  };
+
+  const ok = await call('?id=1&name=' + encodeURIComponent('  某首歌  ') + '&artist=' + encodeURIComponent('某歌手'));
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal(ok.data.ok, true);
+  assert.equal(path.dirname(ok.data.path), path.resolve(downloadDir), '应落在配置目录内');
+  assert.equal(path.basename(ok.data.path), '某歌手 - 某首歌.mp3');
+  assert.equal(fs.readFileSync(ok.data.path, 'utf-8'), 'dsh-music-download-test');
+  console.log(`✓ /music/api/download: ${path.basename(ok.data.path)} (${ok.data.sizeBytes}B)`);
+
+  // 文件名来自客户端,必须清洗:不能借 ../ 逃出目录
+  const evil = await call('?id=2&name=' + encodeURIComponent('../../../Escape') + '&artist=' + encodeURIComponent('a/b\\c*d?e'));
+  assert.equal(evil.status, 200, JSON.stringify(evil.data));
+  assert.equal(path.dirname(evil.data.path), path.resolve(downloadDir), '清洗后仍应落在目录内');
+  assert.equal(path.basename(evil.data.path), 'a b c d e - .. .. Escape.mp3');
+  assert.ok(!fs.existsSync(path.resolve(downloadDir, '..', '..', 'Escape.mp3')), '不应在 downloadDir 之外落盘');
+  console.log(`✓ 下载文件名清洗:${path.basename(evil.data.path)}`);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  // 真实链路:解析网易云直链并落盘到临时目录(不碰用户默认目录)
+  const realDir = path.join(dir, 'real');
+  const real = createMusicService({ ncm: createNcm({ realIP: '116.25.146.177' }), downloadDir: realDir });
+  const okRes = fakeRes();
+  await real({ method: 'GET', url: '/music/api/download?id=347230&name=' + encodeURIComponent('海阔天空') + '&artist=Beyond', headers: {} }, okRes);
+  const saved = JSON.parse(okRes.bodyOf().toString('utf-8') || '{}');
+  assert.equal(okRes.status, 200, JSON.stringify(saved));
+  assert.equal(saved.ok, true);
+  assert.ok(saved.sizeBytes > 100000, `落盘文件应非空:${JSON.stringify(saved)}`);
+  assert.ok(fs.existsSync(saved.path), '文件应存在');
+  assert.equal(saved.dir, path.resolve(realDir));
+  console.log(`✓ 真实下载:${path.basename(saved.path)} ${saved.sizeBytes}B trial=${saved.trial}`);
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 // —— 扫码登录状态机(桩 ncm:手机扫码无法自动化,这里覆盖 key→轮询→803 落盘→退出) ——
@@ -239,6 +304,25 @@ assert.ok(playlistResult.tracks.length > 0);
 assert.equal(normalizeCookie(['MUSIC_U=a; Path=/; HttpOnly', '__csrf=b; Expires=x; Domain=.163.com']), 'MUSIC_U=a; __csrf=b');
 assert.equal(mergeCookies('NMTID=1; MUSIC_U=old', 'MUSIC_U=new'), 'NMTID=1; MUSIC_U=new');
 console.log('✓ normalizeCookie / mergeCookies');
+
+// —— 客户端歌词解析(纯函数,直接测源码) ——
+const parsedLrc = parseLrc('[00:01.23]第一句\n[00:10.00][00:40.00]副歌\n[00:00.00] 暂无歌词\n纯文本行忽略');
+assert.deepEqual(parsedLrc.map((l) => l.text), ['第一句', '副歌', '副歌'], '应展开多时间标签并丢弃占位/无标签行');
+assert.ok(Math.abs(parsedLrc[0].time - 1.23) < 1e-6, `毫秒位应进小数:${parsedLrc[0].time}`);
+assert.deepEqual(parsedLrc.map((l) => l.time).slice(1), [10, 40], '按时间升序');
+console.log('✓ parseLrc 时间轴解析');
+
+// —— 客户端构建约束:src/ui 不得动态引入本地模块 ——
+// 本项目构建参数(minifyIdentifiers:false + treeShaking:false)下,esbuild 会把
+// 动态引入的解构变量编译成未改名的自由引用,运行期 ReferenceError 被 .catch 吞掉,
+// 表现为歌词整页空白。静态引入不走这条路径,冒烟里以源码规则守住这条边界。
+const uiDir = new URL('../src/ui/', import.meta.url);
+for (const f of fs.readdirSync(uiDir)) {
+  if (!/\.(jsx?|ts)$/.test(f)) continue;
+  const code = fs.readFileSync(new URL(f, uiDir), 'utf-8');
+  assert.ok(!/(^|[^.\w])import\(['"]\.\/?/.test(code), `src/ui/${f} 出现了对本地模块的动态引入`);
+}
+console.log('✓ src/ui 无本地模块动态引入');
 
 // —— render 冒烟 ——
 for (const tool of registered.values()) {
