@@ -324,6 +324,20 @@ for (const f of fs.readdirSync(uiDir)) {
 }
 console.log('✓ src/ui 无本地模块动态引入');
 
+// —— 进度条跳转:松手/取消必须挂在 window 上 ——
+// 宿主(DSH)会在拖拽中途接管指针,元素级的 pointerup 收不到、pointercancel 又会丢掉意图,
+// 表现就是"点进度条没反应";捕获式拖拽(setPointerCapture)同理不可靠,且对合成指针会抛错。
+const components = fs.readFileSync(new URL('../src/ui/components.jsx', import.meta.url), 'utf-8');
+const seekBarFrom = components.indexOf('export function SeekBar');
+assert.ok(seekBarFrom >= 0, '源码里应能找到 SeekBar');
+const seekBarSrc = components.slice(seekBarFrom);
+const seekBarBody = seekBarSrc.slice(0, seekBarSrc.indexOf('\nexport ') < 0 ? undefined : seekBarSrc.indexOf('\nexport '));
+for (const ev of ['pointerup', 'pointercancel']) {
+  assert.match(seekBarBody, new RegExp(`window\\.addEventListener\\(['"]${ev}`), `SeekBar 缺少 window 级 ${ev} 监听`);
+}
+assert.ok(!/setPointerCapture/.test(seekBarBody), 'SeekBar 不应依赖 setPointerCapture');
+console.log('✓ SeekBar 松手/取消挂在 window 上');
+
 // —— render 冒烟 ——
 for (const tool of registered.values()) {
   const value =
