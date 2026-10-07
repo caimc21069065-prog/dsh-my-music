@@ -1,0 +1,76 @@
+# dsh-plugin-music
+
+**DSH Music** — 内嵌 DeepSeek Harness 的独立音乐播放器插件。UI 复刻自 [AlgerMusicPlayer](https://github.com/algerkong/AlgerMusicPlayer)(MIT),去除原品牌,作为干净的 DSH 原生插件运行;**不依赖本机安装任何播放器**。
+
+- 宿主侧(Node/cordis):网易云音乐数据层(`netease-cloud-music-api-alger`)+ 本地 webserver 路由(数据 API + 音频流代理)
+- 客户端(React,DSH 主区域整页):发现 / 歌单 / 排行榜 / 搜索 / 沉浸式歌词 / 播放队列 / 设置,底部常驻播放条
+- 附加:聊天内可直接调用的 4 个工具(`music_search` / `music_song_url` / `music_lyric` / `music_playlist_tracks`)
+
+## 安装
+
+### 手动(推荐,当前未发布 npm)
+
+编辑 `~/.dsh/profiles/desktop/package.json`:
+
+```json
+"dependencies": {
+  "dsh-plugin-music": "file:C:/path/to/dsh-music"
+},
+"dsh": {
+  "profile": {
+    "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-plugin-music"]
+  }
+}
+```
+
+然后在该目录 `pnpm install`,重启 DSH;左侧图标栏会出现「音乐」。
+
+### 发布后
+
+```bash
+dsh plugin --profile desktop add dsh-plugin-music
+```
+
+或通过 dshmarket 插件市场安装(收录后)。
+
+## 配置(`~/.dsh/profiles/desktop/cordis.patch.yml`)
+
+```yaml
+- id: music
+  config:
+    cookie: 'MUSIC_U=xxxxxxxx'   # 可选;未登录仅标准音质,VIP 歌无法完整播放
+    requestTimeoutMs: 15000
+    defaultLevel: standard       # 音频代理默认音质
+```
+
+Cookie 在 DSH → 设置 → 插件 → dsh-plugin-music 的配置表单里填更方便。
+
+## 开发
+
+```bash
+npm install
+npm run build   # esbuild 打包 src/client.jsx → lib/client.js(ModuleLoader 工厂格式,CSS 内联)
+npm test        # 冒烟:工具 + /music/api/* + /music/stream 音频代理(真实网络)
+```
+
+构建产物 `lib/client.js` 是单文件客户端模块(react/react-dom 为 external,由 DSH 浏览器模块表提供);修改 UI 后需重新 `npm run build` 并重启 DSH(或开启 profile 的 patchReload)。
+
+## 架构
+
+```
+DSH 桌面端
+├─ 宿主插件 lib/index.js
+│   ├─ /music/api/*      数据接口(搜索/歌词/歌单/榜单/每日推荐)
+│   ├─ /music/stream/:id 音频流代理(Range 透传,<audio> 直接指向此处)
+│   └─ 4 个 agent 工具
+└─ 客户端 lib/client.js(React,slots: main + sidebar.panellist)
+    └─ UI 与宿主同源通信(无需 CORS),音频走本地代理解决混合内容
+```
+
+## 免责声明
+
+UI 结构参考 AlgerMusicPlayer(MIT,感谢原作者 algerkong);数据依赖社区维护的第三方接口库,仅供个人学习研究。音乐内容版权归网易云及版权方所有,请遵守当地法律,勿用于商业用途。不包含任何音源解锁组件。
+
+## License
+
+MIT
