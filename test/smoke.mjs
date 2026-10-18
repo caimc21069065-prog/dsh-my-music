@@ -11,7 +11,7 @@ import { apply } from '../lib/index.js';
 import { createMusicService } from '../lib/service.js';
 import { createNcm } from '../lib/ncm.js';
 import { mergeCookies, normalizeCookie } from '../lib/cookie.js';
-import { parseLrc } from '../src/ui/api.js';
+import { parseLrc, streamUrl } from '../src/ui/api.js';
 import { PLAY_MODES, insertNext, nextIndex, prevIndex, shuffled } from '../src/ui/queue.js';
 
 const registered = new Map();
@@ -441,6 +441,15 @@ assert.ok(Math.abs(parsedLrc[0].time - 1.23) < 1e-6, `毫秒位应进小数:${pa
 assert.deepEqual(parsedLrc.map((l) => l.time).slice(1), [10, 40], '按时间升序');
 console.log('✓ parseLrc 时间轴解析');
 
+// —— 桌面端音频必须绕过 dsh-app:// 自定义协议 ——
+// Electron protocol.handle 的流式响应无法可靠 seek(拖回 0 重新播放,electron#38749);
+// 宿主启动时已下发 HTTP 源,桌面端音频直连它,Ranges 由本地 webserver 原生处理。
+globalThis.__DSH_TRANSPORT__ = { streamBaseUrl: 'http://127.0.0.1:60902/' };
+assert.equal(streamUrl(42, 'exhigh'), 'http://127.0.0.1:60902/music/stream/42?level=exhigh');
+delete globalThis.__DSH_TRANSPORT__;
+assert.equal(streamUrl(42), '/music/stream/42', '无桌面宿主时应回退到同源相对路径');
+console.log('✓ streamUrl 桌面端直连宿主 HTTP 源');
+
 // —— 客户端构建约束:src/ui 不得动态引入本地模块 ——
 // 本项目构建参数(minifyIdentifiers:false + treeShaking:false)下,esbuild 会把
 // 动态引入的解构变量编译成未改名的自由引用,运行期 ReferenceError 被 .catch 吞掉,
@@ -453,9 +462,9 @@ for (const f of fs.readdirSync(uiDir)) {
 }
 console.log('✓ src/ui 无本地模块动态引入');
 
-// —— 进度条跳转:松手/取消必须挂在 window 上 ——
-// 宿主(DSH)会在拖拽中途接管指针,元素级的 pointerup 收不到、pointercancel 又会丢掉意图,
-// 表现就是"点进度条没反应";捕获式拖拽(setPointerCapture)同理不可靠,且对合成指针会抛错。
+// —— 进度条交互层必须是原生 range ——
+// 宿主(DSH)会在 document/window 上挂指针监听(输入模态、关闭浮层),自定义 pointer
+// 拖拽在宿主里会中途被接管;原生 range 走浏览器内建逻辑,只通过 onChange 取跳转值。
 const components = fs.readFileSync(new URL('../src/ui/components.jsx', import.meta.url), 'utf-8');
 const seekBarFrom = components.indexOf('export function SeekBar');
 assert.ok(seekBarFrom >= 0, '源码里应能找到 SeekBar');

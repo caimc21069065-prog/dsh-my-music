@@ -79,8 +79,18 @@ export function parseLrc(text) {
   return lines.sort((a, b) => a.time - b.time);
 }
 
+/**
+ * 桌面端 UI 由 dsh-app:// 自定义协议承载,音频若用相对路径会经 Electron protocol.handle
+ * 转发;该路径上的 206 流式响应无法可靠 seek(拖回 0 重新播放,electron#38749)。
+ * 宿主在启动时下发了 HTTP 源,媒体直连它,Range 由本地 webserver 原生处理。
+ */
+function mediaBase() {
+  const base = typeof globalThis === 'undefined' ? undefined : globalThis.__DSH_TRANSPORT__?.streamBaseUrl;
+  return typeof base === 'string' ? base.replace(/\/+$/, '') : '';
+}
+
 export function streamUrl(songId, level) {
-  return `/music/stream/${songId}${level ? `?level=${encodeURIComponent(level)}` : ''}`;
+  return `${mediaBase()}/music/stream/${songId}${level ? `?level=${encodeURIComponent(level)}` : ''}`;
 }
 
 export function formatCount(n) {
