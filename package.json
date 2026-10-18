@@ -17,6 +17,21 @@
     "LICENSE"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/caimc21069065-prog/dsh-my-music.git"
+  },
+  "homepage": "https://github.com/caimc21069065-prog/dsh-my-music#readme",
+  "bugs": {
+    "url": "https://github.com/caimc21069065-prog/dsh-my-music/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "music",
+    "netease-cloud-music"
+  ],
   "engines": {
     "node": ">=20",
     "dsh": ">=0.2.0-rc.0"
