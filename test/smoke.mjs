@@ -12,6 +12,7 @@ import { createMusicService } from '../lib/service.js';
 import { createNcm } from '../lib/ncm.js';
 import { mergeCookies, normalizeCookie } from '../lib/cookie.js';
 import { parseLrc } from '../src/ui/api.js';
+import { PLAY_MODES, insertNext, nextIndex, prevIndex, shuffled } from '../src/ui/queue.js';
 
 const registered = new Map();
 const routes = new Map();
@@ -90,6 +91,65 @@ const apiToplists = await api('/music/api/toplists');
 assert.equal(apiToplists.status, 200);
 assert.ok(apiToplists.data.items.length > 0);
 console.log(`✓ /music/api/toplists: ${apiToplists.data.items.length} 个榜单`);
+
+// —— 首页聚合:每日推荐 / 推荐歌单 / 歌手 / 新碟 / 新歌(单个板块失败不应拖垮整页) ——
+{
+  const homeApi = await api('/music/api/home');
+  assert.equal(homeApi.status, 200, JSON.stringify(homeApi.data).slice(0, 300));
+  assert.ok(homeApi.data.daily?.tracks?.length > 0, '首页应有每日推荐曲目');
+  const first = homeApi.data.daily.tracks[0];
+  assert.ok(first.id && first.name, '曲目应有 id/name');
+  assert.ok(first.cover, `曲目应带封面:${JSON.stringify(first).slice(0, 200)}`);
+  assert.ok(first.artists?.length > 0, '曲目应带歌手数组');
+  assert.ok(Array.isArray(homeApi.data.playlists), 'playlists 应为数组');
+  assert.ok(Array.isArray(homeApi.data.albums), 'albums 应为数组');
+  assert.ok(Array.isArray(homeApi.data.newSongs), 'newSongs 应为数组');
+  console.log(`✓ /music/api/home: 日推 ${homeApi.data.daily.tracks.length} / 歌单 ${homeApi.data.playlists.length} / 歌手 ${homeApi.data.artists.length} / 新碟 ${homeApi.data.albums.length} / 新歌 ${homeApi.data.newSongs.length}`);
+}
+
+// —— 歌单广场:分类 + 分页 ——
+{
+  const cats = await api('/music/api/playlists/categories');
+  assert.equal(cats.status, 200);
+  assert.ok(cats.data.categories.includes('全部'), '分类应包含「全部」');
+  const page1 = await api('/music/api/playlists?limit=3&offset=0');
+  assert.equal(page1.status, 200, JSON.stringify(page1.data).slice(0, 200));
+  assert.equal(page1.data.items.length, 3);
+  assert.ok(page1.data.items[0].cover, '歌单卡应有封面');
+  assert.ok(page1.data.items[0].playCount >= 0);
+  console.log(`✓ /music/api/playlists: ${cats.data.categories.length} 个分类,首页 ${page1.data.items.length} 个歌单`);
+}
+
+// —— 新碟 / 专辑详情 / 歌手详情(结构化字段供标准歌曲行渲染) ——
+{
+  const albums = await api('/music/api/album/new?limit=3');
+  assert.equal(albums.status, 200);
+  assert.ok(albums.data.items.length > 0 && albums.data.items[0].cover);
+  const albumDetail = await api('/music/api/album/detail?id=32311');
+  assert.equal(albumDetail.status, 200, JSON.stringify(albumDetail.data).slice(0, 200));
+  assert.ok(albumDetail.data.tracks.length > 0, '专辑应返回曲目');
+  assert.ok(albumDetail.data.tracks[0].cover && albumDetail.data.tracks[0].album, '专辑曲目应带封面/专辑名');
+  const artistDetail = await api('/music/api/artist/detail?id=6452');
+  assert.equal(artistDetail.status, 200, JSON.stringify(artistDetail.data).slice(0, 200));
+  assert.ok(artistDetail.data.artist.name, '歌手详情应有名字');
+  assert.ok(artistDetail.data.hotSongs.length > 0, '歌手应有热门歌曲');
+  console.log(`✓ 新碟/专辑/歌手:${albums.data.items.length} 张新碟,专辑 ${albumDetail.data.tracks.length} 首,歌手热歌 ${artistDetail.data.hotSongs.length} 首`);
+}
+
+// —— 搜索:结构化字段 + 热搜 + 联想 ——
+{
+  const res = await api('/music/api/search?keywords=' + encodeURIComponent('周杰伦') + '&type=song&limit=3');
+  assert.equal(res.status, 200);
+  const s0 = res.data.items[0];
+  assert.ok(s0.cover && s0.album && s0.duration > 0, `搜索歌曲应带封面/专辑/时长:${JSON.stringify(s0).slice(0, 200)}`);
+  assert.ok(Array.isArray(s0.artists) && s0.artists[0]?.name, '搜索歌曲应带歌手数组');
+  assert.ok(typeof s0.detail === 'string', '保留旧客户端的 detail 摘要');
+  const hot = await api('/music/api/search/hot');
+  assert.ok(hot.data.items.length > 0, '热搜榜应有内容');
+  const suggest = await api('/music/api/search/suggest?keywords=' + encodeURIComponent('海阔'));
+  assert.ok(Array.isArray(suggest.data.items));
+  console.log(`✓ 搜索:${res.data.items.length} 条结构化结果,热搜 ${hot.data.items.length} 条,联想 ${suggest.data.items.length} 条`);
+}
 
 // —— 扫码登录:真实取 key + 出图(库的 qrimg 是占位图,必须由我们自己绘制) ——
 {
@@ -186,6 +246,32 @@ assert.ok(playlistResult.tracks.length > 0);
   assert.equal(path.basename(evil.data.path), 'a b c d e - .. .. Escape.mp3');
   assert.ok(!fs.existsSync(path.resolve(downloadDir, '..', '..', 'Escape.mp3')), '不应在 downloadDir 之外落盘');
   console.log(`✓ 下载文件名清洗:${path.basename(evil.data.path)}`);
+
+  // 下载目录概览 + 在文件管理器里定位:界面靠这两个接口回答「歌存哪了」
+  process.env.DSH_MUSIC_NO_OPEN = '1'; // 冒烟不真的弹窗口,只验证选中的目标
+  const hit = async (url) => {
+    const res = fakeRes();
+    await stubRoute({ method: 'GET', url, headers: {} }, res);
+    return { status: res.status, data: JSON.parse(res.bodyOf().toString('utf-8') || '{}') };
+  };
+  const info = await hit('/music/api/download/info');
+  assert.equal(info.status, 200, JSON.stringify(info.data));
+  assert.equal(info.data.dir, path.resolve(downloadDir));
+  assert.equal(info.data.exists, true);
+  assert.equal(info.data.total, 2, '只统计音频文件');
+  assert.deepEqual(info.data.items.map((i) => i.name).sort(), ['a b c d e - .. .. Escape.mp3', '某歌手 - 某首歌.mp3']);
+  assert.equal(info.data.items.find((i) => i.name === '某歌手 - 某首歌.mp3').trial, false);
+  console.log(`✓ /music/api/download/info: ${info.data.total} 个文件 @ ${info.data.dir}`);
+
+  const openedFile = await hit('/music/api/download/open?name=' + encodeURIComponent('某歌手 - 某首歌.mp3'));
+  assert.equal(openedFile.status, 200, JSON.stringify(openedFile.data));
+  assert.equal(openedFile.data.opened, 'file', '存在的文件应精确定位');
+  assert.equal(openedFile.data.path, path.join(path.resolve(downloadDir), '某歌手 - 某首歌.mp3'));
+  const escaped = await hit('/music/api/download/open?name=' + encodeURIComponent('../../../Windows/System32'));
+  assert.equal(escaped.data.opened, 'dir', '越界路径只应退化成打开下载目录');
+  assert.equal(escaped.data.path, path.resolve(downloadDir));
+  console.log('✓ /music/api/download/open: 文件可定位,越界路径被限制在下载目录');
+  delete process.env.DSH_MUSIC_NO_OPEN;
 
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -305,6 +391,49 @@ assert.equal(normalizeCookie(['MUSIC_U=a; Path=/; HttpOnly', '__csrf=b; Expires=
 assert.equal(mergeCookies('NMTID=1; MUSIC_U=old', 'MUSIC_U=new'), 'NMTID=1; MUSIC_U=new');
 console.log('✓ normalizeCookie / mergeCookies');
 
+// —— 队列与播放模式(纯函数) ——
+{
+  const TRACKS = [1, 2, 3, 4, 5].map((id) => ({ id, name: `s${id}` }));
+
+  // 下一首播放:保留当前曲目,插到它后面(曾经把当前曲目挤丢,详见 v1.0.1)
+  assert.deepEqual(insertNext(TRACKS, 0, { id: 9 }).map((t) => t.id), [1, 9, 2, 3, 4, 5]);
+  assert.deepEqual(insertNext(TRACKS, 2, { id: 9 }).map((t) => t.id), [1, 2, 3, 9, 4, 5]);
+  // 队列里已有的曲子:先挪到当前后一位,而不是再堆一份
+  assert.deepEqual(insertNext(TRACKS, 0, { id: 4 }).map((t) => t.id), [1, 4, 2, 3, 5]);
+  // 没有在播的曲目:追加到队尾
+  assert.deepEqual(insertNext(TRACKS, -1, { id: 9 }).map((t) => t.id), [1, 2, 3, 4, 5, 9]);
+  // 边界:单元素队列、越界 index
+  assert.deepEqual(insertNext(TRACKS.slice(0, 1), 0, { id: 9 }).map((t) => t.id), [1, 9]);
+  assert.deepEqual(insertNext(TRACKS, 99, { id: 9 }).map((t) => t.id), [1, 2, 3, 4, 5, 9]);
+  assert.equal(insertNext(TRACKS, 0, null).length, 5);
+
+  // 播放模式
+  assert.equal(nextIndex(TRACKS, 0, 'loop'), 1);
+  assert.equal(nextIndex(TRACKS, 4, 'loop'), 0, '列表循环到头要回到第一首');
+  assert.equal(nextIndex(TRACKS, 2, 'one'), 2, '单曲循环重复同一首');
+  assert.equal(nextIndex([TRACKS[0]], 0, 'shuffle'), 0, '只有一首时随机也安全');
+  // 随机:偏移 1..n-1,既不会重复当前项,也不会因为 rand 恒定而死循环(曾经 while 重掷会死循环)
+  assert.equal(nextIndex(TRACKS, 4, 'shuffle', () => 0), 0);
+  assert.equal(nextIndex(TRACKS, 4, 'shuffle', () => 0.99), 3);
+  assert.equal(nextIndex(TRACKS, 0, 'shuffle', () => 0.5), 3);
+  for (const r of [0, 0.1, 0.25, 0.5, 0.75, 0.999]) {
+    for (let i = 0; i < 5; i++) {
+      assert.notEqual(nextIndex(TRACKS, i, 'shuffle', () => r), i, '随机模式不得重复当前首');
+    }
+  }
+  assert.equal(nextIndex([], 0, 'loop'), -1, '空队列返回 -1');
+  assert.equal(prevIndex(TRACKS, 0), 4, '上一首循环');
+  assert.equal(prevIndex([], 0), -1);
+
+  // 随机播放:打乱顺序但集合不变
+  const seq = shuffled(TRACKS);
+  assert.deepEqual([...seq].map((t) => t.id).sort(), [1, 2, 3, 4, 5]);
+  assert.notEqual(seq, TRACKS, '不应返回原数组引用');
+  assert.deepEqual(shuffled([]), []);
+  assert.deepEqual(PLAY_MODES, ['loop', 'one', 'shuffle']);
+  console.log('✓ insertNext / nextIndex / prevIndex / shuffled');
+}
+
 // —— 客户端歌词解析(纯函数,直接测源码) ——
 const parsedLrc = parseLrc('[00:01.23]第一句\n[00:10.00][00:40.00]副歌\n[00:00.00] 暂无歌词\n纯文本行忽略');
 assert.deepEqual(parsedLrc.map((l) => l.text), ['第一句', '副歌', '副歌'], '应展开多时间标签并丢弃占位/无标签行');
@@ -332,11 +461,14 @@ const seekBarFrom = components.indexOf('export function SeekBar');
 assert.ok(seekBarFrom >= 0, '源码里应能找到 SeekBar');
 const seekBarSrc = components.slice(seekBarFrom);
 const seekBarBody = seekBarSrc.slice(0, seekBarSrc.indexOf('\nexport ') < 0 ? undefined : seekBarSrc.indexOf('\nexport '));
-for (const ev of ['pointerup', 'pointercancel']) {
-  assert.match(seekBarBody, new RegExp(`window\\.addEventListener\\(['"]${ev}`), `SeekBar 缺少 window 级 ${ev} 监听`);
-}
+// 宿主会在 document/window 上挂指针监听,自定义 pointer 逻辑在宿主里不可靠;
+// 进度条交互层必须是原生 range(浏览器内建处理点按/拖动),只通过 onChange 拿值。
+assert.match(seekBarBody, /type="range"/, 'SeekBar 应使用原生 range 作为交互层');
+assert.match(seekBarBody, /onChange=\{/, 'SeekBar 应从 onChange 取跳转值');
 assert.ok(!/setPointerCapture/.test(seekBarBody), 'SeekBar 不应依赖 setPointerCapture');
-console.log('✓ SeekBar 松手/取消挂在 window 上');
+assert.ok(!/onPointerDown=/.test(seekBarBody), 'SeekBar 不应依赖元素级 pointerdown');
+assert.ok(!/addEventListener\(['"]pointerdown/.test(seekBarBody), 'SeekBar 不应依赖自定义 pointerdown');
+console.log('✓ SeekBar 使用原生 range 交互,不依赖自定义 pointer 事件');
 
 // —— render 冒烟 ——
 for (const tool of registered.values()) {

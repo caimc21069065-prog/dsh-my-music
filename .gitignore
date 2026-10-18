@@ -1,1 +1,4 @@
 node_modules/
+design/render-test/preview.bundle.js
+.workbuddy-ai/
+*.tmp.*

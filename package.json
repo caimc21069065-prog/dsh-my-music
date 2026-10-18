@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-music",
-  "description": "DSH Music — 内嵌 DeepSeek Harness 的独立音乐播放器插件(数据层与 UI 自包含,不依赖本机安装其他播放器)。数据来源为网易云音乐开放接口。",
-  "version": "0.2.0",
+  "description": "DSH Music — 内嵌 DeepSeek Harness 的独立音乐播放器插件,UI 1:1 复刻 AlgerMusicPlayer,数据来自网易云音乐开放接口。",
+  "version": "1.0.3",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -37,7 +37,8 @@
   },
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "test": "node --import ./test/register.mjs test/smoke.mjs"
+    "test": "node --import ./test/register.mjs test/smoke.mjs",
+    "preview:build": "esbuild design/render-test/preview.jsx --bundle --format=iife --jsx=automatic --loader:.css=text --outfile=design/render-test/preview.bundle.js"
   },
   "dsh": {
     "manifestVersion": 1,
